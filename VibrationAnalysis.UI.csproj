@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <OutputType>WinExe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="DynamicSpectrumForm.cs" />
+    <Compile Remove="DynamicSpectrumForm.Designer.cs" />
+    <Compile Remove="FaultSelectionForm.cs" />
+    <Compile Remove="FaultSelectionForm.Designer.cs" />
+    <Compile Remove="Form1.cs" />
+    <Compile Remove="Form1.Designer.cs" />
+    <Compile Remove="HardwareConfigForm.cs" />
+    <Compile Remove="HardwareConfigForm.Designer.cs" />
+    <Compile Remove="MainForm.cs" />
+    <Compile Remove="MainForm.Designer.cs" />
+    <Compile Remove="ResultsForm.cs" />
+    <Compile Remove="ResultsForm.Designer.cs" />
+    <Compile Remove="RotorForm.Designer.cs" />
+    <Compile Remove="RotorForm.Designer.Designer.cs" />
+    <Compile Remove="SimulationForm.cs" />
+    <Compile Remove="SimulationForm.Designer.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Remove="DynamicSpectrumForm.resx" />
+    <EmbeddedResource Remove="FaultSelectionForm.resx" />
+    <EmbeddedResource Remove="Form1.resx" />
+    <EmbeddedResource Remove="HardwareConfigForm.resx" />
+    <EmbeddedResource Remove="MainForm.resx" />
+    <EmbeddedResource Remove="ResultsForm.resx" />
+    <EmbeddedResource Remove="RotorForm.Designer.resx" />
+    <EmbeddedResource Remove="SimulationForm.resx" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.5" />
+  </ItemGroup>
+</Project>
