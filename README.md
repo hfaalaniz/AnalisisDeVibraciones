@@ -8,4 +8,4 @@ Añade la biblioteca MathNet Numerics para los calculos de Fourier y Complex.
 Sigue los paso tal como se indican en la captura de pantalla. Podrías añadir codigo para ir habilitando los botones
 mientras se cumple con el orden preestablecido
 
-![Sistema en acción](av.png)
+![Sistema en acción](AV.png)
