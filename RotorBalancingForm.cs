@@ -33,6 +33,7 @@ namespace VibrationAnalysis.UI
             ApplyTheme(GetParameter<string>("cmbTheme", "Dark"));
             UpdateStatus();
             LogManager.Instance?.LogInfo("RotorBalancingForm inicializado.");
+            this.Text = "Balanceo de Rotores en 1 y 2 planos - (C) 2025 por Fabian Alaniz - ElectroNet";
         }
 
         private void ConfigureControls()
