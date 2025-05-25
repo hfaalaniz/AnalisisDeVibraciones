@@ -84,16 +84,16 @@ namespace VibrationAnalysis.UI
                 File.AppendAllText(backupLogPath, $"[BACKUP] {DateTime.Now:yyyy-MM-dd HH:mm:ss}: {message}{Environment.NewLine}");
             }
             catch
-            {
+            { 
                 // Si falla el log de respaldo, escribir solo en consola para no entrar en un bucle
                 WriteToConsole($"[ERROR] No se pudo escribir en el log de respaldo ({backupLogPath})");
-            }
-        }
+            } 
+        } 
 
         private void WriteToConsole(string message)
-        {
+        { 
             // Escribir en consola para depuración o notificación
             Console.WriteLine(message);
-        }
-    }
-}
+        } 
+    } 
+} 
