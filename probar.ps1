@@ -125,9 +125,17 @@ if ($Ejecutar -in 'todo', 'pruebas') {
 
     Titulo "Pruebas de la web (Node)"
     if (Existe node) {
-        $archivos = Get-ChildItem web\tests\*.test.mjs | ForEach-Object { $_.FullName }
-        node --test @archivos
-        if ($LASTEXITCODE -eq 0) { Ok "Web / paridad C# ↔ JS" } else { $fallos += 'Web (Node)' }
+        Write-Host "  node $(node --version)"
+        # Rutas relativas con '/': Node 21+ trata los argumentos de --test como glob y '\' es escape.
+        $archivos = Get-ChildItem web\tests\*.test.mjs | ForEach-Object { 'web/tests/' + $_.Name }
+        $argsNode = @('--test', '--test-timeout=60000') + $archivos
+        $proc = Start-Process node -ArgumentList $argsNode -NoNewWindow -PassThru
+        $null = $proc.Handle                       # necesario para leer ExitCode luego
+        if (-not $proc.WaitForExit(180000)) {      # 3 min como máximo
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            Aviso "Las pruebas web superaron 3 minutos: proceso detenido."
+            $fallos += 'Web (Node, tiempo agotado)'
+        } elseif ($proc.ExitCode -eq 0) { Ok "Web / paridad C# ↔ JS" } else { $fallos += 'Web (Node)' }
     } else {
         Aviso "Node no está instalado: se omiten las pruebas web (https://nodejs.org)."
     }
