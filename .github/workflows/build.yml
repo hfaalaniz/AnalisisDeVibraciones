@@ -52,4 +52,4 @@ jobs:
       - name: Vectores de referencia desde C#
         run: dotnet run --project tests/VibrationAnalysis.Core.Tests -c Release -- --emit web/tests/vectors.json
       - name: Pruebas del motor web (y paridad con C#)
-        run: node --test web/tests/
+        run: node --test web/tests/*.test.mjs
