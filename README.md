@@ -49,6 +49,20 @@ dotnet run --project src/VibrationAnalysis.UI
 dotnet publish src/VibrationAnalysis.UI -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
 
+### Probar una rama en Windows (`probar.ps1`)
+
+Trae la rama desde GitHub, corre las pruebas (C# y web) y abre la app. Una sola vez: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+```powershell
+.\probar.ps1 -Listar                       # ramas disponibles
+.\probar.ps1 -Rama fix/xxx                 # actualiza, prueba y abre la app de escritorio
+.\probar.ps1 -Rama fix/xxx -Ejecutar web   # web en http://localhost:8000/app/
+.\probar.ps1                               # repite en la rama actual (con pull)
+.\probar.ps1 -Volver                       # vuelve a main y borra ramas ya mezcladas
+```
+
+Opciones: `-Ejecutar todo|pruebas|escritorio|web|nada`, `-Guardar` (aparta cambios locales con `git stash`), `-Reiniciar` (iguala la rama local a GitHub), `-Puerto`.
+
 Cada push compila la app en Windows y corre todas las pruebas (GitHub Actions). Al crear una etiqueta `v*` (por ejemplo `v2.0.0`) se publica el ejecutable en **Releases**.
 
 ## Publicar la web en Cloudflare Pages
