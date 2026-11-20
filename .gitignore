@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+publish/
+node_modules/
+web/tests/vectors.json.tmp

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Análisis de Vibraciones y Balanceo</title>
+<meta name="description" content="Análisis de vibraciones con FFT, severidad ISO 10816, diagnóstico de fallas y balanceo de campo en 1 y 2 planos. En el navegador y para Windows.">
+<link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE work: producto industrial para técnicos y jefes de mantenimiento
+   IDEA la pantalla de un analizador de vibraciones de campo
+   PICTURE espectro real con el pico 1X y, al lado, el diagrama polar que lo corrige
+   COLOUR blanco, tinta #0b0b10, verde señal #00a862 a sangre, bruma #eafaf2
+   TYPE Space Grotesk 500 + Inter
+   LAYOUT título arriba a la izquierda con acciones, figura a todo el ancho debajo; teléfono: título, figura, acciones */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#07130d);--ink:light-dark(#0b0b10,#e9f5ee);--mute:light-dark(#55605b,#9db3a7);--line:light-dark(#d6dcd9,#24392d);--mist:light-dark(#eafaf2,#0f2a1c);--accent:light-dark(#00a862,#2fd68b);--accent-ink:light-dark(#ffffff,#04110a);--alt:light-dark(#6b7cff,#9aa6ff);--red:#d6362b}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 Inter,system-ui,"Segoe UI",Arial,sans-serif;overflow-x:clip}
+h1,h2,h3{font-family:"Space Grotesk",Inter,sans-serif;font-weight:600;letter-spacing:-.02em;line-height:1.08;margin:0}
+a{color:inherit}
+img{max-width:100%}
+.band{padding-block:clamp(28px,5vw,72px);padding-left:max(5vw,16px);padding-right:max(5vw,16px)}
+.in{max-width:1240px;margin:0 auto}
+nav.top{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:14px max(5vw,16px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:19px;text-decoration:none}
+.brand svg{width:32px;height:32px}
+nav.top .links{margin-left:auto;display:flex;gap:18px;flex-wrap:wrap;font-size:15px}
+nav.top .links a{text-decoration:none;color:var(--mute)}
+nav.top .links a:hover{color:var(--ink)}
+.hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px;align-items:center}
+.hero h1{font-size:clamp(38px,5.4vw,64px)}
+.hero p{font-size:19px;color:var(--mute);max-width:56ch;margin:16px 0 0}
+.cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 22px;border-radius:999px;font-weight:600;text-decoration:none;border:1.5px solid var(--ink)}
+.btn.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn:hover{filter:brightness(1.06)}
+.btn:focus-visible{outline:3px solid var(--alt);outline-offset:3px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(10em,1fr));gap:14px 18px;align-self:center}
+.kpis div{border-top:2px solid var(--ink);padding-top:10px}
+.kpis b{display:block;font-family:"Space Grotesk",sans-serif;font-size:clamp(26px,2.6vw,36px);letter-spacing:-.02em;white-space:nowrap}
+.kpis span{font-size:15px;color:var(--mute)}
+.screen{background:var(--accent);padding-block:clamp(20px,3vw,40px);padding-left:max(5vw,16px);padding-right:max(5vw,16px)}
+.device{max-width:1240px;margin:0 auto;background:var(--bg);border-radius:18px;padding:18px;display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:18px;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+.device h3{font-size:17px;margin-bottom:4px}
+.device .sub{font-size:14px;color:var(--mute);margin:0 0 6px}
+.fig{position:relative;min-height:320px}
+.fig>svg{position:absolute;inset:0;width:100%;height:100%}
+svg text{font:13px Inter,system-ui,sans-serif;fill:var(--mute);paint-order:stroke;stroke:var(--bg);stroke-width:4px}
+.read{display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;margin-top:8px;font-size:15px;color:var(--mute)}
+.read b{font-family:"Space Grotesk",sans-serif;font-size:26px;color:var(--ink);white-space:nowrap}
+.feat{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:28px}
+.feat h3{font-size:22px;margin:10px 0 8px}
+.feat p{margin:0;color:var(--mute);font-size:16px}
+.feat svg{width:56px;height:56px}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(24px,4vw,56px);align-items:start}
+.split h2,.sec h2{font-size:clamp(30px,3.6vw,44px);margin-bottom:14px}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:14px}
+.steps li{display:grid;grid-template-columns:52px minmax(0,1fr);gap:14px;align-items:start;padding:14px 0;border-top:1px solid var(--line)}
+.steps li>span{font-family:"Space Grotesk",sans-serif;font-size:34px;line-height:1;color:var(--accent)}
+.steps b{display:block;font-size:18px}
+.steps p{margin:4px 0 0;color:var(--mute);font-size:16px}
+.mist{background:var(--mist)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mute);font-weight:600}
+code,pre{font-family:ui-monospace,Consolas,monospace;font-size:14px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;margin:12px 0 0}
+.dl{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:28px;align-items:center}
+.dl ul{margin:10px 0 0;padding-left:20px;color:var(--mute)}
+footer{border-top:1px solid var(--line);padding:24px max(5vw,16px);color:var(--mute);font-size:15px}
+footer .in{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+@media(max-width:900px){.hero,.split,.dl{grid-template-columns:minmax(0,1fr)}.device{grid-template-columns:minmax(0,1fr)}.feat{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.feat{grid-template-columns:minmax(0,1fr)}nav.top .links{margin-left:0}table{font-size:13px}th,td{padding:6px 4px}.fig{min-height:240px}}
+</style>
+</head>
+<body>
+<nav class="top">
+  <a class="brand" href="./"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--ink)"/><path d="M4 17h4l2.5-8 4 15 3.5-11 2 4h8" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Análisis de Vibraciones</a>
+  <div class="links"><a href="#funciones">Funciones</a><a href="#balanceo">Balanceo</a><a href="#sensor">Sensor USB</a><a href="#descarga">Descarga</a></div>
+</nav>
+
+<header class="band">
+  <div class="in hero">
+    <div>
+      <h1>Medí, diagnosticá y balanceá rotores en el lugar</h1>
+      <p>Espectro FFT, severidad según ISO 10816, diagnóstico de fallas y balanceo de campo en 1 y 2 planos con el método de coeficientes de influencia. En el navegador o en Windows.</p>
+      <div class="cta"><a class="btn go" href="app/">Abrir la app web</a><a class="btn" href="#descarga">Descargar para Windows</a></div>
+    </div>
+    <div class="kpis">
+      <div><b>6,35 → 0,09</b><span>mm/s a 1X en el ejemplo del simulador, en 3 corridas</span></div>
+      <div><b>1 y 2</b><span>planos de corrección, con ajuste final (trim)</span></div>
+      <div><b>ISO</b><span>10816 severidad · 1940 calidad G</span></div>
+    </div>
+  </div>
+</header>
+
+<section class="screen" aria-label="Vista de la aplicación">
+  <div class="device">
+    <div>
+      <h3>Desbalance: 1X domina el espectro</h3>
+      <p class="sub">Ventilador VT-02 · 1500 rpm · velocidad, ventana Hanning</p>
+      <div class="fig" id="specFig"></div>
+      <div class="read"><span><b>4,49</b> mm/s RMS</span><span>Zona C · insatisfactoria</span><span>1X 6,35 ∠ 165°</span></div>
+    </div>
+    <div>
+      <h3>Corrección: 12,4 g ∠ 285°</h3>
+      <p class="sub">Original, con peso de prueba y verificación</p>
+      <div class="fig" id="polFig"></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="funciones">
+  <div class="in feat">
+    <div>
+      <svg viewBox="0 0 56 56" aria-hidden="true"><rect width="56" height="56" rx="12" fill="var(--mist)"/><path d="M8 44h40" stroke="var(--ink)" stroke-width="2"/><path d="M14 44V18M24 44V34M34 44V28M44 44V38" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"/></svg>
+      <h3>Espectro y forma de onda</h3>
+      <p>FFT con ventanas Hanning, flat-top y Hamming; conversión entre aceleración, velocidad y desplazamiento; factor de cresta y curtosis.</p>
+    </div>
+    <div>
+      <svg viewBox="0 0 56 56" aria-hidden="true"><rect width="56" height="56" rx="12" fill="var(--mist)"/><rect x="10" y="24" width="9" height="8" fill="#1f9d55"/><rect x="19" y="24" width="9" height="8" fill="#7fb51b"/><rect x="28" y="24" width="9" height="8" fill="#e08e00"/><rect x="37" y="24" width="9" height="8" fill="#d6362b"/><path d="M31 18v20" stroke="var(--ink)" stroke-width="2.5"/></svg>
+      <h3>Severidad ISO 10816</h3>
+      <p>Velocidad RMS de 10 a 1000 Hz evaluada por clase o grupo de máquina y fundación, con zonas A, B, C y D.</p>
+    </div>
+    <div>
+      <svg viewBox="0 0 56 56" aria-hidden="true"><rect width="56" height="56" rx="12" fill="var(--mist)"/><circle cx="25" cy="25" r="11" fill="none" stroke="var(--ink)" stroke-width="3"/><path d="M33 33l11 11" stroke="var(--ink)" stroke-width="4" stroke-linecap="round"/><path d="M19 25h3l2-5 3 10 2-5h2" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>
+      <h3>Diagnóstico de fallas</h3>
+      <p>Desbalance, desalineación, holgura, rodamientos (BPFO, BPFI, BSF), remolino de aceite, paso de álabes y problemas eléctricos.</p>
+    </div>
+    <div>
+      <svg viewBox="0 0 56 56" aria-hidden="true"><rect width="56" height="56" rx="12" fill="var(--mist)"/><circle cx="28" cy="28" r="16" fill="none" stroke="var(--ink)" stroke-width="2"/><path d="M28 28L16 38" stroke="var(--ink)" stroke-width="3"/><circle cx="41" cy="21" r="5" fill="var(--red)"/></svg>
+      <h3>Balanceo e informe</h3>
+      <p>Paso a paso con peso de prueba, reparto entre álabes, perforación, verificación contra ISO 1940 e informe para imprimir o guardar en PDF.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band mist" id="balanceo">
+  <div class="in split">
+    <div>
+      <h2>El balanceo mide cómo responde tu máquina</h2>
+      <p>En vez de suponer la respuesta del rotor, cada corrida mide cuánto y hacia dónde mueve la vibración un peso conocido. Con eso se calcula la corrección exacta para ese equipo, sobre su base y a su velocidad.</p>
+      <p class="sub" style="color:var(--mute)">Lecturas 1X: amplitud y fase respecto del pulso del tacómetro. Los ángulos de los pesos se miden desde la marca de referencia.</p>
+    </div>
+    <ol class="steps">
+      <li><span>1</span><div><b>Medición original</b><p>Vibración 1X sin pesos, en uno o dos sensores.</p></div></li>
+      <li><span>2</span><div><b>Peso de prueba</b><p>La app sugiere la masa (10 % del peso del rotor como fuerza) y avisa si el efecto fue muy chico.</p></div></li>
+      <li><span>3</span><div><b>Corrección</b><p>Masa y ángulo por plano, repartida entre álabes o convertida en perforación, con la vibración residual prevista.</p></div></li>
+      <li><span>4</span><div><b>Verificación y ajuste</b><p>Si queda fuera de tolerancia, calcula el ajuste fino con los mismos coeficientes y compara con el grado G de ISO 1940.</p></div></li>
+    </ol>
+  </div>
+</section>
+
+<section class="band" id="sensor">
+  <div class="in split">
+    <div>
+      <h2>Sensor USB de bajo costo</h2>
+      <p>Para medir en vivo, un ESP32 con uno o dos acelerómetros ADXL345 y un sensor óptico como tacómetro envía las muestras por USB. La app web lo lee desde Chrome o Edge y la de Windows por el puerto COM.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Componente</th><th>Función</th></tr></thead>
+        <tbody>
+          <tr><td>ESP32 DevKit</td><td>Muestreo a 3200 Hz y envío por USB a 921600 baudios</td></tr>
+          <tr><td>ADXL345 (1 o 2)</td><td>Acelerómetro ±16 g por SPI, uno por plano</td></tr>
+          <tr><td>Sensor óptico reflectivo</td><td>Un pulso por vuelta sobre cinta reflectiva: referencia de fase y rpm</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div>
+      <h3>Protocolo de texto</h3>
+      <p style="color:var(--mute)">Una cabecera y una línea por muestra. Cualquier equipo que lo respete funciona con la app.</p>
+<pre>#VA fs=3200 ch=2 unit=g tach=1
+0.0123,-0.0457,0
+0.0131,-0.0442,0
+0.0140,-0.0431,1</pre>
+      <p style="color:var(--mute);font-size:15px">El firmware de ejemplo está en la carpeta <code>firmware/</code> del repositorio.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band mist" id="descarga">
+  <div class="in dl">
+    <div>
+      <h2>App para Windows</h2>
+      <p>Misma matemática que la versión web, con lectura por puerto COM, proyectos <code>.vaproj</code> compatibles entre ambas e informe HTML.</p>
+      <ul><li>Windows 10 u 11 de 64 bits</li><li>Ejecutable único, sin instalación ni .NET aparte</li><li>Los registros quedan en %LOCALAPPDATA%\AnalisisVibraciones</li></ul>
+    </div>
+    <div class="cta" style="margin:0"><a class="btn go" href="https://github.com/hfaalaniz/AnalisisDeVibraciones/releases/latest">Descargar la última versión</a><a class="btn" href="app/">Probar en el navegador</a></div>
+  </div>
+</section>
+
+<footer><div class="in"><span>© 2025 Fabian Alaniz · ElectroNet · +54 9 351 284-8802 · <a href="https://www.developers-soft.com/" target="_blank" rel="noopener">www.developers-soft.com</a></span><span>Los diagnósticos automáticos son orientativos y deben validarse por personal calificado.</span></div></footer>
+
+<script>
+{
+  // Espectro de ejemplo (1X dominante y ruido) y diagrama polar, dibujados a tamaño real.
+  const spec = document.getElementById('specFig'), pol = document.getElementById('polFig');
+  let seed = 7; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+  const noise = Array.from({ length: 240 }, () => 0.03 + rnd() * 0.06);
+  const peaks = [[25, 6.35], [50, 0.42], [75, 0.21], [100, 0.12]];
+  const drawSpec = () => {
+    const W = spec.clientWidth, H = spec.clientHeight, L = 44, R = 12, T = 22, B = 28, w = W - L - R, h = H - T - B, fmax = 300, top = 7.5;
+    const X = (f) => L + f / fmax * w, Y = (a) => T + h - a / top * h;
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Espectro con pico de 6,35 mm/s a 25 Hz">`;
+    for (const v of [0, 2.5, 5, 7.5]) s += `<line x1="${L}" x2="${L + w}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${String(v).replace('.', ',')}</text>`;
+    for (let f = 0; f < fmax; f += W < 520 ? 100 : 50) s += `<text x="${X(f)}" y="${T + h + 18}" text-anchor="middle">${f}</text>`;
+    for (let k = 1; k * 25 <= fmax; k++) if (W >= 520 || k <= 4) s += `<line x1="${X(k * 25)}" x2="${X(k * 25)}" y1="${T}" y2="${T + h}" stroke="var(--alt)" stroke-dasharray="3 4" opacity=".6"/><text x="${X(k * 25)}" y="${T - 6}" text-anchor="middle">${k}X</text>`;
+    let d = '';
+    for (let i = 0; i < noise.length; i++) {
+      const f = i * fmax / noise.length;
+      let a = noise[i];
+      for (const [pf, pa] of peaks) a += pa * Math.exp(-((f - pf) ** 2) / 1.2);
+      d += `${i ? 'L' : 'M'}${X(f).toFixed(1)},${Y(a).toFixed(1)}`;
+    }
+    s += `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
+    s += `<circle cx="${X(25)}" cy="${Y(6.35)}" r="4" fill="var(--ink)"/><text x="${X(25) + 10}" y="${Y(6.35) + 4}" style="fill:var(--ink)">6,35 mm/s a 25 Hz (1X)</text>`;
+    spec.innerHTML = s + `<text x="${L + w}" y="${T + h + 18}" text-anchor="end">Hz</text></svg>`;
+  };
+  const drawPol = () => {
+    const W = pol.clientWidth, H = pol.clientHeight, cx = W / 2, cy = H / 2, r = Math.min(W, H) / 2 - 26;
+    const P = (rr, a) => [cx - rr * Math.sin(a * Math.PI / 180), cy - rr * Math.cos(a * Math.PI / 180)];
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Diagrama polar de balanceo">`;
+    for (let k = 1; k <= 4; k++) s += `<circle cx="${cx}" cy="${cy}" r="${r * k / 4}" fill="none" stroke="var(--line)"/>`;
+    for (let a = 0; a < 360; a += 30) { const [x, y] = P(r, a), [lx, ly] = P(r + 14, a); s += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)"/><text x="${lx}" y="${ly + 4}" text-anchor="middle">${a}°</text>`; }
+    const arrow = (m, a, c, dash = '') => { const [x, y] = P(r * m / 7.5, a); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="${c}" stroke-width="3" ${dash} marker-end="url(#ah)" style="color:${c}"/>`; };
+    s += `<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="context-stroke"/></marker></defs>`;
+    s += arrow(6.35, 165, 'var(--ink)') + arrow(6.55, 130, '#e08e00') + arrow(0.6, 327, 'var(--alt)');
+    const [wx, wy] = P(r * 0.85, 285);
+    s += `<line x1="${cx}" y1="${cy}" x2="${wx}" y2="${wy}" stroke="var(--red)" stroke-dasharray="3 4" stroke-width="2"/><circle cx="${wx}" cy="${wy}" r="11" fill="var(--red)"/><text x="${wx}" y="${wy + 4}" text-anchor="middle" style="fill:#fff;stroke:none;font-weight:600">W</text>`;
+    pol.innerHTML = s + '</svg>';
+  };
+  const ro1 = new ResizeObserver(drawSpec); ro1.observe(spec);
+  const ro2 = new ResizeObserver(drawPol); ro2.observe(pol);
+}
+</script>
+</body>
+</html>

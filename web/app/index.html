@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Análisis de Vibraciones</title>
+<meta name="description" content="Análisis de vibraciones, severidad ISO 10816, diagnóstico de fallas y balanceo de campo en 1 y 2 planos, en el navegador.">
+<link rel="icon" href="../img/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE work: instrumento de campo para técnicos de mantenimiento
+   IDEA panel de un analizador de vibraciones portátil: lectura grande, espectro, pasos de balanceo
+   PICTURE el espectro en vivo con órdenes 1X…nX y el diagrama polar de balanceo
+   COLOUR blanco, tinta #0b0b10, verde señal #00a862 en la banda de la lectura, bruma #eafaf2; zonas ISO A–D
+   TYPE Space Grotesk 500 + Inter
+   LAYOUT laptop: banda de lectura arriba, espectro grande a la izquierda y panel de fuente/diagnóstico a la derecha; teléfono: lectura, gráfico, controles */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#07130d);--panel:light-dark(#ffffff,#0d1d15);--ink:light-dark(#0b0b10,#e9f5ee);--mute:light-dark(#55605b,#9db3a7);--line:light-dark(#d6dcd9,#24392d);--grid:light-dark(#e7ece9,#1b2e23);--mist:light-dark(#eafaf2,#0f2a1c);--accent:light-dark(#00a862,#2fd68b);--accent-ink:light-dark(#ffffff,#04110a);--alt:light-dark(#6b7cff,#9aa6ff);--warn:light-dark(#d9480f,#ff8a5c);--zA:#1f9d55;--zB:#7fb51b;--zC:#e08e00;--zD:#d6362b}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 Inter,system-ui,"Segoe UI",Arial,sans-serif;overflow-x:clip}
+h1,h2,h3{font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-weight:600;letter-spacing:-.02em;line-height:1.1;margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent)}
+.wrap{max-width:1320px;margin:0 auto;padding-left:max(16px,3vw);padding-right:max(16px,3vw)}
+header.top{border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+.bar{display:flex;align-items:center;gap:16px;min-height:60px;flex-wrap:wrap;padding-block:8px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:18px}
+.brand svg{width:30px;height:30px}
+nav.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+nav.tabs button{border:0;background:none;padding:10px 14px;border-radius:999px;cursor:pointer;font-weight:500;min-height:44px}
+nav.tabs button[aria-selected=true]{background:var(--ink);color:var(--bg)}
+nav.tabs button:hover{background:var(--mist)}
+nav.tabs button[aria-selected=true]:hover{background:var(--ink)}
+.machine-chip{font-size:14px;color:var(--mute);white-space:nowrap}
+section.view{display:none}
+section.view.on{display:block}
+.reading{background:var(--accent);color:var(--accent-ink)}
+.reading .wrap{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,2fr);gap:24px;padding-block:22px;align-items:end}
+.big{font-family:"Space Grotesk",sans-serif;font-size:clamp(44px,6vw,76px);font-weight:600;letter-spacing:-.03em;line-height:1;white-space:nowrap}
+.big small{font-size:.32em;font-weight:500;letter-spacing:0;margin-left:6px}
+.zone{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:5px 12px;border-radius:999px;background:var(--accent-ink);color:var(--ink);font-weight:600;font-size:15px}
+.zone i{width:12px;height:12px;border-radius:50%;display:inline-block}
+.figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(9em,1fr));gap:4px 18px}
+.figs div{border-top:1px solid color-mix(in srgb,var(--accent-ink) 35%,transparent);padding-top:6px}
+.figs span{display:block;font-size:13px;opacity:.85}
+.figs b{font-size:21px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.sevscale{display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:12px;max-width:380px;position:relative;background:var(--accent-ink)}
+.sevscale div{height:100%}
+.sevscale .mk{position:absolute;top:-4px;width:3px;height:16px;background:var(--accent-ink);border:1px solid var(--ink)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;padding-block:20px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.panel h3{font-size:18px;margin-bottom:10px}
+.panel+.panel{margin-top:14px}
+.fig{position:relative;min-height:300px}
+.fig.tall{min-height:360px}
+.fig.short{min-height:200px}
+.fig>canvas{position:absolute;inset:0;width:100%;height:100%}
+.charthead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.charthead h2{font-size:20px}
+.charthead p{margin:0;color:var(--mute);font-size:14px}
+.seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.seg button{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:9px 8px;cursor:pointer;min-height:44px;font-size:14px;font-weight:500}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.btn{border:1px solid var(--ink);background:var(--panel);border-radius:999px;padding:10px 18px;cursor:pointer;font-weight:600;min-height:44px}
+.btn.primary{background:var(--ink);color:var(--bg)}
+.btn.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:focus-visible,nav.tabs button:focus-visible,.seg button:focus-visible{outline:3px solid var(--alt);outline-offset:2px}
+label.f{display:grid;gap:4px;font-size:14px;color:var(--mute)}
+label.f input,label.f select,label.f textarea,.inp{font-size:16px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:42px;width:100%}
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.fields.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.slider{display:grid;grid-template-columns:minmax(0,1fr) 64px;gap:8px;align-items:center;font-size:14px}
+.slider output{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.check{display:flex;gap:8px;align-items:center;font-size:15px}
+.check input{width:20px;height:20px;accent-color:var(--accent)}
+.finding{border-left:4px solid var(--accent);padding:6px 0 6px 12px;margin:10px 0}
+.finding b{display:block}
+.finding p{margin:2px 0;font-size:14px;color:var(--mute)}
+.conf{font-size:13px;font-weight:600;white-space:nowrap}
+.muted{color:var(--mute);font-size:14px}
+.note{font-size:14px;color:var(--mute);margin:8px 0 0}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:10px;max-width:min(560px,92vw);z-index:10;font-size:15px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.toast[hidden]{display:none}
+/* Balanceo */
+.bal{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;padding-block:20px}
+.steps{list-style:none;margin:0;padding:0;counter-reset:s}
+.steps li{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line);color:var(--mute)}
+.steps li::before{counter-increment:s;content:counter(s);width:30px;height:30px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--line);font-weight:700;font-size:14px}
+.steps li.done{color:var(--ink)}
+.steps li.done::before{content:"✓";background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.steps li.cur{color:var(--ink);font-weight:600}
+.steps li.cur::before{border-color:var(--ink);background:var(--ink);color:var(--bg)}
+.instr{font-size:16px;margin:12px 0}
+.result{background:var(--mist);border-radius:12px;padding:14px 16px}
+.result h3{font-size:18px}
+.corr{font-family:"Space Grotesk",sans-serif;font-size:clamp(26px,3.2vw,38px);font-weight:600;letter-spacing:-.02em;white-space:nowrap}
+.polars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;margin-top:6px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--mute)}
+td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Máquina */
+.mach{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:20px;padding-block:20px}
+fieldset{border:1px solid var(--line);border-radius:12px;padding:12px 16px 16px;margin:0 0 14px}
+legend{font-weight:600;padding:0 6px}
+.kv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;font-size:15px}
+.kv dt{color:var(--mute)}
+.kv dd{margin:0;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.report{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:20px;padding-block:20px}
+.report iframe{width:100%;height:640px;border:1px solid var(--line);border-radius:12px;background:#fff}
+footer{border-top:1px solid var(--line);padding-block:18px;color:var(--mute);font-size:14px}
+footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
+@media(max-width:1000px){.grid,.bal,.mach,.report{grid-template-columns:minmax(0,1fr)}.reading .wrap{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.polars,.fields,.fields.three{grid-template-columns:minmax(0,1fr)}nav.tabs{margin-left:0;width:100%}nav.tabs button{flex:1;padding:8px 6px;font-size:14px}.machine-chip{display:none}table{font-size:13px}th,td{padding:6px 4px}.fig{min-height:240px}.fig.tall{min-height:280px}.report iframe{height:480px}}
+@media print{header.top,footer,nav{display:none}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="../"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--ink)"/><path d="M4 17h4l2.5-8 4 15 3.5-11 2 4h8" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Análisis de Vibraciones</a>
+    <span class="machine-chip" id="machineChip"></span>
+    <nav class="tabs" role="tablist" aria-label="Secciones">
+      <button role="tab" id="tab-analisis" aria-controls="v-analisis" aria-selected="true">Análisis</button>
+      <button role="tab" id="tab-balanceo" aria-controls="v-balanceo" aria-selected="false">Balanceo</button>
+      <button role="tab" id="tab-maquina" aria-controls="v-maquina" aria-selected="false">Máquina</button>
+      <button role="tab" id="tab-informe" aria-controls="v-informe" aria-selected="false">Informe</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="view on" id="v-analisis" role="tabpanel" aria-labelledby="tab-analisis">
+  <div class="reading">
+    <div class="wrap">
+      <div>
+        <div class="big" id="vrms">— <small>mm/s RMS</small></div>
+        <div class="zone" id="zone"><i></i><span>Sin datos</span></div>
+        <div class="sevscale" id="sevscale" aria-hidden="true"></div>
+      </div>
+      <div class="figs" id="figs"></div>
+    </div>
+  </div>
+  <div class="wrap grid">
+    <div>
+      <div class="panel">
+        <div class="charthead"><h2 id="specTitle">Espectro</h2><p id="specSub"></p></div>
+        <div class="fig tall"><canvas id="cSpec" role="img" aria-label="Espectro de frecuencias"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="charthead"><h2>Forma de onda</h2><p id="waveSub">Líneas punteadas: pulsos del tacómetro (una vuelta)</p></div>
+        <div class="fig short"><canvas id="cWave" role="img" aria-label="Forma de onda"></canvas></div>
+      </div>
+    </div>
+    <aside>
+      <div class="panel">
+        <h3>Fuente de datos</h3>
+        <div class="seg" id="srcSeg">
+          <button data-src="sim" aria-pressed="true">Simulador</button>
+          <button data-src="file" aria-pressed="false">Archivo CSV/WAV</button>
+          <button data-src="serial" aria-pressed="false">Sensor USB</button>
+          <button data-src="manual" aria-pressed="false">Ingreso manual</button>
+        </div>
+        <div class="row">
+          <button class="btn go" id="btnAcquire">Adquirir</button>
+          <label class="check"><input type="checkbox" id="chkLive"> En vivo</label>
+          <input type="file" id="fileInput" accept=".csv,.txt,.wav" hidden>
+        </div>
+        <p class="note" id="srcNote"></p>
+        <div class="fields" style="margin-top:10px">
+          <label class="f">Canal<select id="selChannel"></select></label>
+          <label class="f">Ver en<select id="selUnit"><option value="mms">Velocidad</option><option value="g">Aceleración</option><option value="um">Desplazamiento</option></select></label>
+          <label class="f">Ventana<select id="selWindow"><option value="hann">Hanning</option><option value="flattop">Flat-top</option><option value="hamming">Hamming</option><option value="rect">Rectangular</option></select></label>
+          <label class="f">Hasta (Hz)<select id="selFmax"><option value="auto">Automático</option><option>200</option><option>500</option><option>1000</option><option>2000</option></select></label>
+        </div>
+      </div>
+      <div class="panel" id="simPanel">
+        <h3>Rotor virtual</h3>
+        <div id="simControls"></div>
+        <p class="note">Practicá el diagnóstico agregando fallas, y el balanceo con los pesos que el simulador coloca solo.</p>
+      </div>
+      <div class="panel">
+        <h3>Diagnóstico</h3>
+        <div id="findings"><p class="muted">Sin datos.</p></div>
+        <p class="note">Orientativo: confirmar midiendo en horizontal, vertical y axial, y con la fase.</p>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section class="view" id="v-balanceo" role="tabpanel" aria-labelledby="tab-balanceo">
+  <div class="wrap bal">
+    <aside>
+      <div class="panel">
+        <h3>Balanceo de campo</h3>
+        <div class="fields">
+          <label class="f">Planos<select id="balPlanes"><option value="1">1 plano</option><option value="2">2 planos</option></select></label>
+          <label class="f">Tolerancia 1X<input id="balTol" type="number" min="0.01" step="0.1" value="1"></label>
+        </div>
+        <label class="f" style="margin-top:10px">Ángulos de los pesos<select id="balAngles"><option value="against">Contrarios al giro (retraso de fase)</option><option value="with">A favor del giro</option></select></label>
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="balKeep"> Dejar los pesos de prueba</label>
+        <p class="note" id="balRec"></p>
+        <ol class="steps" id="steps"></ol>
+        <div class="row"><button class="btn" id="btnNewSession">Nueva sesión</button></div>
+      </div>
+    </aside>
+    <div>
+      <div class="panel">
+        <div class="charthead"><h2 id="stepTitle">Paso</h2><p id="stepSource"></p></div>
+        <p class="instr" id="stepInstr"></p>
+        <div class="fields three" id="trialFields">
+          <label class="f">Peso de prueba (g)<input id="trialG" type="number" min="0.01" step="0.1" value="20"></label>
+          <label class="f">Ángulo (°)<input id="trialA" type="number" min="0" max="359.9" step="1" value="0"></label>
+          <label class="f">Sugerido<input id="trialSug" class="inp" readonly></label>
+        </div>
+        <div id="manualFields" class="fields" style="margin-top:10px">
+          <label class="f">Sensor 1: amplitud<input id="m1a" type="number" min="0" step="0.01"></label>
+          <label class="f">Sensor 1: fase (°)<input id="m1p" type="number" min="0" max="359.9" step="1"></label>
+          <label class="f s2">Sensor 2: amplitud<input id="m2a" type="number" min="0" step="0.01"></label>
+          <label class="f s2">Sensor 2: fase (°)<input id="m2p" type="number" min="0" max="359.9" step="1"></label>
+        </div>
+        <div class="row">
+          <button class="btn go" id="btnMeasure">Medir y registrar</button>
+          <label class="check"><input type="checkbox" id="chkManual"> Ingresar la lectura a mano</label>
+          <button class="btn" id="btnUndo" title="Deshacer la última corrida">Deshacer</button>
+        </div>
+      </div>
+      <div class="result panel" id="resultBox"></div>
+      <div class="panel">
+        <div class="polars">
+          <div><div class="charthead"><h2>Sensor 1</h2></div><div class="fig"><canvas id="cPol1" role="img" aria-label="Diagrama polar sensor 1"></canvas></div><div class="legend" id="leg1"></div></div>
+          <div id="pol2box"><div class="charthead"><h2>Sensor 2</h2></div><div class="fig"><canvas id="cPol2" role="img" aria-label="Diagrama polar sensor 2"></canvas></div><div class="legend" id="leg2"></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Corridas</h3>
+        <div class="scroll"><table id="runsTable"></table></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="v-maquina" role="tabpanel" aria-labelledby="tab-maquina">
+  <div class="wrap mach">
+    <form id="machineForm" autocomplete="off">
+      <fieldset><legend>Identificación y operación</legend>
+        <div class="fields">
+          <label class="f">Equipo<input id="mName"></label>
+          <label class="f">Ubicación<input id="mLocation"></label>
+          <label class="f">Velocidad (rpm)<input id="mRpm" type="number" min="1" step="1"></label>
+          <label class="f">Frecuencia de red (Hz)<select id="mLine"><option>50</option><option>60</option></select></label>
+        </div>
+        <label class="f" style="margin-top:10px">Criterio de severidad<select id="mClass"></select></label>
+      </fieldset>
+      <fieldset><legend>Rotor</legend>
+        <div class="fields three">
+          <label class="f">Tipo<select id="mType"><option value="solid">Macizo</option><option value="hollow">Hueco (tubo)</option><option value="impeller">Impulsor / turbina</option></select></label>
+          <label class="f">Material<select id="mMaterial"></select></label>
+          <label class="f">Masa (kg, 0 = estimar)<input id="mMass" type="number" min="0" step="0.1"></label>
+          <label class="f">Diámetro (mm)<input id="mDiam" type="number" min="1"></label>
+          <label class="f">Diám. interior (mm)<input id="mInner" type="number" min="0"></label>
+          <label class="f">Largo (mm)<input id="mLen" type="number" min="1"></label>
+          <label class="f">Álabes / posiciones<input id="mBlades" type="number" min="0" step="1"></label>
+          <label class="f">Radio de corrección (mm)<input id="mRadius" type="number" min="1"></label>
+          <label class="f">Calidad ISO 1940<select id="mGrade"></select></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>Rodamiento (opcional, para BPFO/BPFI)</legend>
+        <div class="fields">
+          <label class="f">Elementos rodantes (0 = sin datos)<input id="bBalls" type="number" min="0" step="1"></label>
+          <label class="f">Diámetro de bola (mm)<input id="bBall" type="number" min="0" step="0.01"></label>
+          <label class="f">Diámetro primitivo (mm)<input id="bPitch" type="number" min="0" step="0.1"></label>
+          <label class="f">Ángulo de contacto (°)<input id="bAngle" type="number" min="0" max="45" step="1"></label>
+        </div>
+      </fieldset>
+    </form>
+    <div>
+      <div class="panel">
+        <h3>Resumen técnico</h3>
+        <dl class="kv" id="machSummary"></dl>
+        <p class="note" id="machRec"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="v-informe" role="tabpanel" aria-labelledby="tab-informe">
+  <div class="wrap report">
+    <div>
+      <div class="panel">
+        <h3>Datos del informe</h3>
+        <label class="f">Técnico<input id="rTech"></label>
+        <label class="f" style="margin-top:10px">Empresa / cliente<input id="rCompany"></label>
+        <label class="f" style="margin-top:10px">Observaciones<textarea id="rNotes" rows="5"></textarea></label>
+        <div class="row">
+          <button class="btn primary" id="btnPrint">Imprimir / PDF</button>
+          <button class="btn" id="btnHtml">Descargar HTML</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Proyecto</h3>
+        <p class="muted">El proyecto se guarda solo en este navegador. Exportalo para abrirlo en la app de Windows o en otra computadora (formato .vaproj).</p>
+        <div class="row">
+          <button class="btn" id="btnExportProj">Exportar proyecto</button>
+          <button class="btn" id="btnImportProj">Importar proyecto</button>
+          <button class="btn" id="btnExportCsv">Exportar señal CSV</button>
+          <input type="file" id="projInput" accept=".vaproj,.json" hidden>
+        </div>
+      </div>
+    </div>
+    <iframe id="reportFrame" title="Vista previa del informe"></iframe>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap"><span>© 2025 Fabian Alaniz · ElectroNet · +54 9 351 284-8802 · <a href="https://www.developers-soft.com/" target="_blank" rel="noopener">www.developers-soft.com</a></span><span><a href="../">Inicio</a> · <a href="../#descarga">App para Windows</a> · <a href="../#sensor">Sensor USB</a></span></div></footer>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="../js/ui/app.js"></script>
+</body>
+</html>
