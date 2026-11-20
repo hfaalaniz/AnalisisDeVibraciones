@@ -1,0 +1,55 @@
+name: Compilación y pruebas
+
+on:
+  push:
+    branches: [main, produccion-v2]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: App de escritorio (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compilar
+        run: dotnet build AnalisisDeVibraciones.sln -c Release
+      - name: Pruebas del núcleo de cálculo
+        run: dotnet run --project tests/VibrationAnalysis.Core.Tests -c Release --no-build
+      - name: Publicar ejecutable (win-x64, un solo archivo)
+        run: dotnet publish src/VibrationAnalysis.UI/VibrationAnalysis.UI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/AnalisisVibraciones
+      - name: Comprimir
+        shell: pwsh
+        run: Compress-Archive -Path publish/AnalisisVibraciones/* -DestinationPath AnalisisVibraciones-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AnalisisVibraciones-win-x64
+          path: AnalisisVibraciones-win-x64.zip
+      - name: Publicar versión (solo en etiquetas v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AnalisisVibraciones-win-x64.zip
+
+  web:
+    name: Versión web (pruebas)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Vectores de referencia desde C#
+        run: dotnet run --project tests/VibrationAnalysis.Core.Tests -c Release -- --emit web/tests/vectors.json
+      - name: Pruebas del motor web (y paridad con C#)
+        run: node --test web/tests/
