@@ -16,11 +16,11 @@ public sealed class SimulatorSettings
     public int Samples { get; set; } = 8192;
     public int Sensors { get; set; } = 2;
     /// <summary>Desbalance inicial en el plano 1 (g·mm ∠ grados).</summary>
-    public Phasor Unbalance1 { get; set; } = new(1800, 70);
+    public Phasor Unbalance1 { get; set; } = new(2000, 70);
     /// <summary>Desbalance inicial en el plano 2 (g·mm ∠ grados).</summary>
-    public Phasor Unbalance2 { get; set; } = new(1100, 250);
+    public Phasor Unbalance2 { get; set; } = new(1400, 160);
     /// <summary>Sensibilidad directa (mm/s pico por cada 1000 g·mm) a 1500 rpm.</summary>
-    public double Sensitivity { get; set; } = 1.6;
+    public double Sensitivity { get; set; } = 2.6;
     /// <summary>Retraso de fase mecánico entre punto pesado y punto alto (grados).</summary>
     public double LagDeg { get; set; } = 60;
     /// <summary>Acoplamiento entre planos (0 = independientes, 1 = iguales).</summary>

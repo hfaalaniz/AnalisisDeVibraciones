@@ -41,8 +41,8 @@ function mulberry32(seed) {
 
 export const defaultSimSettings = () => ({
   rpm: 1500, fs: 5120, samples: 8192, sensors: 2,
-  u1: { mag: 1800, ang: 70 }, u2: { mag: 1100, ang: 250 },
-  sensitivity: 1.6, lagDeg: 60, crossCoupling: 0.35, noise: 0.05,
+  u1: { mag: 2000, ang: 70 }, u2: { mag: 1400, ang: 160 },
+  sensitivity: 2.6, lagDeg: 60, crossCoupling: 0.35, noise: 0.05,
   misalignment: 0, looseness: 0, bearing: 0, oilWhirl: 0, electrical: 0, lineHz: 50,
   bearingGeom: { balls: 9, ballD: 7.94, pitchD: 39, contactDeg: 0 },
   masses: [], seed: 12345,
