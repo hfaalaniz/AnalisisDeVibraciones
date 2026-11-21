@@ -337,6 +337,65 @@ t.Run("Catálogo de frecuencias: identificación de picos", () =>
     T.Eq(FrequencyCatalog.Identify(333, m, 0.5), "", "sin rótulo");
 });
 
+// ───────────── Órdenes y transitorios ─────────────
+t.Run("Espectro de órdenes con velocidad variable (10 → 30 Hz)", () =>
+{
+    var (x, tach, fs) = Chirp(10, 30, 4, 5000, (th, i) => 2 * Math.Cos(th) + Math.Cos(3 * th - 40 * Math.PI / 180));
+    var pulses = Tachometer.DetectPulses(tach, fs);
+    var os = OrderTracking.OrderSpectrum(x, fs, pulses, 10, WindowType.FlatTop);
+    T.Near(os.PeakNear(1, 0.1).Amplitude, 2, 0.06, "orden 1"); T.Near(os.PeakNear(3, 0.1).Amplitude, 1, 0.04, "orden 3");
+    var plain = SpectrumAnalyzer.Compute(x, fs, WindowType.FlatTop);
+    T.True(plain.Amplitudes.Max() < 1.4, $"en frecuencia la energía se reparte: {plain.Amplitudes.Max():0.00}");
+});
+t.Run("Seguimiento 1X: amplitud y fase exactas en una rampa", () =>
+{
+    var (x, tach, fs) = Chirp(8, 25, 5, 5000, (th, i) => 2 * Math.Cos(th - 70 * Math.PI / 180) + 0.5 * Math.Cos(2 * th));
+    var tr = OrderTracking.Track(x, fs, Tachometer.DetectPulses(tach, fs), 1, 4);
+    T.True(tr.Points.Count > 20, "puntos");
+    foreach (var p in tr.Points) { T.Near(p.Amplitude, 2, 0.03, $"amplitud a {p.Rpm:0} rpm"); T.Near(Angles.Difference(p.PhaseLagDeg, 70), 0, 1.5, $"fase a {p.Rpm:0} rpm"); }
+    T.True(tr.Points[^1].Rpm > tr.Points[0].Rpm * 2.5, "la velocidad sube");
+    var h2 = OrderTracking.Track(x, fs, Tachometer.DetectPulses(tach, fs), 2, 4);
+    T.Near(h2.Points.Average(p => p.Amplitude), 0.5, 0.02, "2X");
+});
+t.Run("Seguimiento 1X coincide con la lectura 1X en régimen", () =>
+{
+    var r = new RotorSimulator(new SimulatorSettings { Sensors = 1, NoiseMmS = 0.02 }).Acquire();
+    var tr = OrderTracking.Track(r.Channels[0].Data, r.SampleRate, Tachometer.DetectPulses(r.Tach!, r.SampleRate), 1, 8);
+    var rd = r.Reading1X(0);
+    T.Near(tr.Points.Average(p => p.Amplitude), rd.Magnitude, rd.Magnitude * 0.02, "amplitud");
+    T.Near(Angles.Difference(tr.Points[0].PhaseLagDeg, rd.AngleDeg), 0, 3, "fase");
+});
+t.Run("Arranque simulado: velocidad crítica, giro de fase y factor Q", () =>
+{
+    var s = new SimulatorSettings { Sensors = 1, RunUp = true, RpmStart = 300, RpmEnd = 3000, CriticalRpm = 1800, Damping = 0.08, Samples = 65536, NoiseMmS = 0.02 };
+    var r = new RotorSimulator(s).Acquire();
+    var pulses = Tachometer.DetectPulses(r.Tach!, r.SampleRate);
+    var tr = OrderTracking.Track(r.Channels[0].Data, r.SampleRate, pulses, 1, 4);
+    var cs = OrderTracking.CriticalSpeeds(tr);
+    T.Eq(cs.Count, 1, "una crítica");
+    T.Near(cs[0].Rpm, 1800, 90, "rpm crítica");
+    T.True(cs[0].PhaseShiftDeg > 60, $"giro de fase {cs[0].PhaseShiftDeg:0}°");
+    T.Near(cs[0].AmplificationFactor, 1 / (2 * 0.08), 2.5, "Q");
+    var cas = OrderTracking.Cascade(r.Channels[0].Data, r.SampleRate, 2048, 0.5, WindowType.Hann, pulses);
+    T.True(cas.Count > 20 && cas[^1].Rpm > cas[0].Rpm * 3, "cascada con rpm creciente");
+    var sg = OrderTracking.Spectrogram(r.Channels[0].Data, r.SampleRate, 1024, 0.75, WindowType.Hann, pulses, 200);
+    T.Eq(sg.Amplitudes.GetLength(0), sg.Times.Length, "filas"); T.True(sg.Frequencies[^1] <= 200, "frecuencia máxima");
+});
+t.Run("Órbita X-Y: elipse 0,6 con precesión directa", () =>
+{
+    var r = new RotorSimulator(new SimulatorSettings { Sensors = 2, ProbesXY = true, NoiseMmS = 0.01 }).Acquire();
+    var o = OrbitAnalysis.Compute(r.Channels[0].Data, r.Channels[1].Data, r.SampleRate, Tachometer.DetectPulses(r.Tach!, r.SampleRate));
+    T.Near(o.AxisRatio, 0.6, 0.02, "relación de ejes"); T.Eq(o.Precession, Precession.Forward, "precesión");
+    T.True(o.Keyphasor.Length >= 2 && o.X.Length == o.Y.Length, "marcas de fase");
+    var inv = OrbitAnalysis.Compute(r.Channels[1].Data, r.Channels[0].Data, r.SampleRate, Tachometer.DetectPulses(r.Tach!, r.SampleRate));
+    T.Eq(inv.Precession, Precession.Reverse, "al cambiar X por Y se invierte");
+});
+t.Run("Desenvolvimiento de fase", () =>
+{
+    var u = OrderTracking.Unwrap(new[] { 350.0, 5, 20, 355, 340 });
+    T.Near(u[1], 365, 1e-9, "salto 350→5"); T.Near(u[3], 355, 1e-9, "vuelta"); T.Near(u[4], 340, 1e-9, "baja");
+});
+
 int failed = t.Summary();
 var emitIdx = Array.IndexOf(args, "--emit");
 if (emitIdx >= 0 && emitIdx + 1 < args.Length) Vectors.Emit(args[emitIdx + 1]);
@@ -356,6 +415,21 @@ static (double[] X, double Fs) BearingSignal(double fDefect)
         for (int i = i0; i < n && i < i0 + 200; i++) { double tt = (i - i0) / fs; x[i] += 1.5 * Math.Exp(-700 * tt) * Math.Sin(2 * Math.PI * 3000 * tt); }
     }
     return (x, fs);
+}
+
+/// Señal de velocidad variable (rampa lineal de f0 a f1 Hz) con su tacómetro de 1 pulso por vuelta.
+static (double[] X, double[] Tach, double Fs) Chirp(double f0, double f1, double seconds, double fs, Func<double, int, double> gen)
+{
+    int n = (int)(seconds * fs);
+    var x = new double[n]; var tach = new double[n];
+    for (int i = 0; i < n; i++)
+    {
+        double t2 = i / fs, th = 2 * Math.PI * (f0 * t2 + (f1 - f0) * t2 * t2 / (2 * seconds));
+        x[i] = gen(th, i);
+        double rev = th / (2 * Math.PI);
+        tach[i] = rev - Math.Floor(rev) < 0.05 ? 5 : 0;
+    }
+    return (x, tach, fs);
 }
 
 static IReadOnlyList<Finding> Diagnose(Recording r, BearingGeometry? b = null)

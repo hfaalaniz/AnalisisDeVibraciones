@@ -113,7 +113,7 @@ namespace VibrationAnalysis.UI
         [Category("Rotor virtual"), DisplayName("Desbalance plano 2 (g·mm)")] public double U2 { get => s.Unbalance2.Magnitude; set => s.Unbalance2 = s.Unbalance2 with { Magnitude = Math.Max(0, value) }; }
         [Category("Rotor virtual"), DisplayName("Ángulo desbalance plano 2 (°)")] public double U2Angle { get => s.Unbalance2.AngleDeg; set => s.Unbalance2 = s.Unbalance2 with { AngleDeg = value }; }
         [Category("Adquisición"), DisplayName("Frecuencia de muestreo (Hz)")] public double SampleRate { get => s.SampleRate; set => s.SampleRate = Math.Clamp(value, 256, 51200); }
-        [Category("Adquisición"), DisplayName("Muestras")] public int Samples { get => s.Samples; set => s.Samples = Math.Clamp(value, 512, 65536); }
+        [Category("Adquisición"), DisplayName("Muestras")] public int Samples { get => s.Samples; set => s.Samples = Math.Clamp(value, 512, 262144); }
         [Category("Adquisición"), DisplayName("Ruido (mm/s)")] public double Noise { get => s.NoiseMmS; set => s.NoiseMmS = Math.Max(0, value); }
         [Category("Fallas"), DisplayName("Desalineación (mm/s)")] public double Misalignment { get => s.Misalignment; set => s.Misalignment = Math.Max(0, value); }
         [Category("Fallas"), DisplayName("Holgura mecánica (mm/s)")] public double Looseness { get => s.Looseness; set => s.Looseness = Math.Max(0, value); }
@@ -122,6 +122,12 @@ namespace VibrationAnalysis.UI
         [Category("Fallas"), DisplayName("Eléctrico 2× red (mm/s)")] public double Electrical { get => s.Electrical; set => s.Electrical = Math.Max(0, value); }
         [Category("Fallas"), DisplayName("Dientes del engranaje")] public int GearTeeth { get => s.GearTeeth; set => s.GearTeeth = Math.Clamp(value, 0, 500); }
         [Category("Fallas"), DisplayName("Desgaste de engranaje (mm/s)"), Description("Frecuencia de engrane con bandas laterales a ±1X.")] public double GearWear { get => s.GearWear; set => s.GearWear = Math.Max(0, value); }
+        [Category("Arranque / parada"), DisplayName("Simular arranque o parada"), Description("Rampa lineal de velocidad durante el registro (usar 65536 muestras o más).")] public bool RunUp { get => s.RunUp; set => s.RunUp = value; }
+        [Category("Arranque / parada"), DisplayName("rpm inicial")] public double RpmStart { get => s.RpmStart; set => s.RpmStart = Math.Clamp(value, 30, 60000); }
+        [Category("Arranque / parada"), DisplayName("rpm final"), Description("Menor que la inicial = parada (coast-down).")] public double RpmEnd { get => s.RpmEnd; set => s.RpmEnd = Math.Clamp(value, 30, 60000); }
+        [Category("Arranque / parada"), DisplayName("Velocidad crítica (rpm)")] public double CriticalRpm { get => s.CriticalRpm; set => s.CriticalRpm = Math.Clamp(value, 30, 60000); }
+        [Category("Arranque / parada"), DisplayName("Amortiguamiento ζ"), Description("0,02 = poco amortiguado (pico agudo) · 0,2 = muy amortiguado.")] public double Damping { get => s.Damping; set => s.Damping = Math.Clamp(value, 0.005, 1); }
+        [Category("Rotor virtual"), DisplayName("Sensores X-Y a 90° (órbita)"), Description("El sensor 2 se ubica a 90° del 1 en el mismo plano para ver la órbita (requiere 2 sensores).")] public bool ProbesXY { get => s.ProbesXY; set { s.ProbesXY = value; if (value) s.Sensors = 2; } }
         [Category("Pesos colocados"), DisplayName("Masas en el rotor"), Description("Pesos de prueba y de corrección colocados en el rotor virtual.")]
         public string Masses => s.AddedMasses.Count == 0 ? "ninguna" : string.Join("; ", s.AddedMasses.Select(m => $"P{m.Plane}: {m.Grams:0.##} g ∠ {m.AngleDeg:0}°"));
     }
