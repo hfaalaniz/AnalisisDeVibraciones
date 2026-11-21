@@ -69,7 +69,7 @@ Trae la rama desde GitHub, corre las pruebas (C# y web) y abre la app. Una sola 
 
 Opciones: `-Ejecutar todo|pruebas|escritorio|web|nada`, `-Guardar` (aparta cambios locales con `git stash`), `-Reiniciar` (iguala la rama local a GitHub), `-Puerto`.
 
-Cada push compila la app en Windows y corre todas las pruebas (GitHub Actions). Al crear una etiqueta `v*` (por ejemplo `v2.0.0`) se publica el ejecutable en **Releases**.
+Cada push compila la app en Windows y corre todas las pruebas (GitHub Actions). Al crear una etiqueta `v*` (por ejemplo `v3.0.0`) se publican en **Releases** el **instalador** (`AnalisisVibraciones-<versión>-instalador.exe`: menú Inicio, escritorio, asociación de `.vaproj`, regla de firewall opcional) y el **zip portable**. Detalles y firma digital en [`installer/README.md`](installer/README.md).
 
 ## Publicar la web en Cloudflare Pages
 

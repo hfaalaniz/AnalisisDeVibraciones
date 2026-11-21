@@ -6,3 +6,6 @@ obj/
 publish/
 node_modules/
 web/tests/vectors.json.tmp
+
+dist/
+publish/
