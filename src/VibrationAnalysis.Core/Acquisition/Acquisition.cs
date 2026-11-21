@@ -16,6 +16,10 @@ public enum SensorKind
     ProximityProbe,
     /// <summary>Tacómetro o keyphasor (pulso por vuelta), se usa como referencia de fase.</summary>
     Tachometer,
+    /// <summary>Pinza amperométrica con salida de tensión, mV/A (análisis de corriente del motor, MCSA).</summary>
+    CurrentClamp,
+    /// <summary>Sensor de ultrasonido (salida en tensión; sensibilidad 1000 = volts directos). Necesita muestrear a 96 kHz o más.</summary>
+    Ultrasound,
 }
 
 /// <summary>Configuración de un canal de entrada analógica.</summary>
@@ -37,6 +41,8 @@ public sealed class ChannelConfig
     {
         SensorKind.VelocitySensor => VibrationUnit.VelocityMmS,
         SensorKind.ProximityProbe => VibrationUnit.DisplacementUm,
+        SensorKind.CurrentClamp => VibrationUnit.CurrentA,
+        SensorKind.Ultrasound => VibrationUnit.VoltageV,
         _ => VibrationUnit.AccelerationG,
     };
 
@@ -45,6 +51,8 @@ public sealed class ChannelConfig
         SensorKind.VelocitySensor => "mV/(mm/s)",
         SensorKind.ProximityProbe => "mV/µm",
         SensorKind.Tachometer => "—",
+        SensorKind.CurrentClamp => "mV/A",
+        SensorKind.Ultrasound => "mV/V",
         _ => "mV/g",
     };
 

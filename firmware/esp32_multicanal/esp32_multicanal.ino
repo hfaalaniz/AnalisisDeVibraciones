@@ -42,6 +42,30 @@
 #if USE_MQTT
 #include <PubSubClient.h>
 #endif
+#ifndef USE_MLX90614
+#define USE_MLX90614 0                            // 1 = termómetro infrarrojo MLX90614 por I2C (temperatura de la carcasa)
+#endif
+#if USE_MLX90614
+#include <Wire.h>
+#if CONFIG_IDF_TARGET_ESP32S3
+static const int PIN_SDA = 1, PIN_SCL = 2;
+#else
+static const int PIN_SDA = 21, PIN_SCL = 22;
+#endif
+/* Temperatura del objeto (°C) del MLX90614 (registro 0x07, 0,02 K por cuenta). NAN si no responde. */
+static float readTemperatureC() {
+  Wire.beginTransmission(0x5A);
+  Wire.write(0x07);
+  if (Wire.endTransmission(false) != 0) return NAN;
+  if (Wire.requestFrom((uint16_t)0x5A, (size_t)3, true) != 3) return NAN;
+  uint16_t lo = Wire.read();
+  uint16_t hi = Wire.read();
+  Wire.read();                                    // PEC
+  uint16_t raw = (uint16_t)(lo | (hi << 8));
+  if (raw & 0x8000) return NAN;                   // bandera de error
+  return raw * 0.02f - 273.15f;
+}
+#endif
 
 // ───────────── Red ─────────────
 #define WIFI_SSID "mi-red"
@@ -282,8 +306,12 @@ static void sendHeader() {
 }
 
 static void sendInfo() {
-  out->printf("# sensor=%s sensores=%d canales=%d fs=%lu rango=±%dg modo=%s\n", sensorName, sensorCount, channels,
+  out->printf("# sensor=%s sensores=%d canales=%d fs=%lu rango=±%dg modo=%s", sensorName, sensorCount, channels,
                 (unsigned long)sampleRate, RANGE_G, binaryMode ? "binario" : "texto");
+#if USE_MLX90614
+  out->printf(" temperatura=%.1f", readTemperatureC());
+#endif
+  out->print("\n");
 }
 
 // ───────────── Programa ─────────────
@@ -303,6 +331,9 @@ void setup() {
   channels = sensorCount * (TRIAXIAL ? 3 : 1);
   // Escala de la trama binaria: rango completo del sensor en 16 bits
   outScale = (SENSOR_TYPE == SENSOR_ADXL345 ? 16.0f : (float)RANGE_G) / 32767.0f;
+#if USE_MLX90614
+  Wire.begin(PIN_SDA, PIN_SCL, 100000);
+#endif
   pinMode(PIN_TACH, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(PIN_TACH), onTach, FALLING);
 #if SENSOR_TYPE != SENSOR_IIS3DWB
@@ -372,11 +403,16 @@ static void serviceMqtt() {
   double secs = (now - lastPublish) / 1000.0;
   lastPublish = now;
   double accRms = sqrt(sumA2 / statN), velRms = sqrt(sumV2 / statN);
-  char json[256];
-  snprintf(json, sizeof(json),
-           "{\"id\":\"%s\",\"sensor\":\"%s\",\"fs\":%lu,\"acc_rms\":%.5f,\"acc_pico\":%.5f,\"factor_cresta\":%.3f,\"vel_rms\":%.4f,\"rpm\":%.1f,\"n\":%lu}",
+  char json[300];
+  int len = snprintf(json, sizeof(json),
+           "{\"id\":\"%s\",\"sensor\":\"%s\",\"fs\":%lu,\"acc_rms\":%.5f,\"acc_pico\":%.5f,\"factor_cresta\":%.3f,\"vel_rms\":%.4f,\"rpm\":%.1f,\"n\":%lu",
            DEVICE_ID, sensorName, (unsigned long)sampleRate, accRms, peakA, accRms > 0 ? peakA / accRms : 0, velRms,
            statPulses * 60.0 / secs, (unsigned long)statN);
+#if USE_MLX90614
+  float tc = readTemperatureC();
+  if (!isnan(tc) && len > 0 && len < (int)sizeof(json) - 32) len += snprintf(json + len, sizeof(json) - len, ",\"temperatura\":%.2f", tc);
+#endif
+  if (len > 0 && len < (int)sizeof(json) - 2) { json[len] = '}'; json[len + 1] = 0; }
   mqtt.publish(MQTT_PREFIX "/" DEVICE_ID "/indicadores", json);
   sumA2 = sumV2 = peakA = 0; statN = statPulses = 0;
 }

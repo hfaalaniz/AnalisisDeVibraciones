@@ -13,6 +13,10 @@ public enum VibrationUnit
     VelocityMmS,
     /// <summary>Desplazamiento en µm.</summary>
     DisplacementUm,
+    /// <summary>Corriente eléctrica en A (pinza amperométrica, análisis MCSA). No se convierte a vibración.</summary>
+    CurrentA,
+    /// <summary>Tensión en V (sensor de ultrasonido u otra señal). No se convierte a vibración.</summary>
+    VoltageV,
 }
 
 public sealed record SignalStatistics(double Rms, double Peak, double PeakToPeak, double CrestFactor, double Kurtosis, double Mean);
@@ -46,7 +50,7 @@ public static class SignalTools
     /// </summary>
     public static double[] Convert(IReadOnlyList<double> x, double sampleRate, VibrationUnit from, VibrationUnit to, double highPassHz = 2.0)
     {
-        if (from == to) return x.ToArray();
+        if (from == to || IsElectrical(from) || IsElectrical(to)) return x.ToArray();   // corriente o tensión: sin conversión
         int n = x.Count;
         double mean = x.Average();
         var a = new Complex[n];
@@ -85,8 +89,13 @@ public static class SignalTools
         _ => 1e-6,
     };
 
+    /// <summary>Corriente o tensión (no son magnitudes de vibración).</summary>
+    public static bool IsElectrical(VibrationUnit u) => u is VibrationUnit.CurrentA or VibrationUnit.VoltageV;
+
     public static string Symbol(VibrationUnit u) => u switch
     {
+        VibrationUnit.CurrentA => "A",
+        VibrationUnit.VoltageV => "V",
         VibrationUnit.AccelerationG => "g",
         VibrationUnit.AccelerationMs2 => "m/s²",
         VibrationUnit.VelocityMmS => "mm/s",

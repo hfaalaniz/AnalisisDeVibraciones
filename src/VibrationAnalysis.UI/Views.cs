@@ -81,6 +81,8 @@ namespace VibrationAnalysis.UI
         public string EffectiveMass => m.EffectiveMassKg.ToString("0.00");
         [Category("3. Rotor"), DisplayName("Álabes / posiciones fijas"), Description("Cantidad de álabes o agujeros donde se pueden colocar pesos (0 = posición libre).")]
         public int Blades { get => m.Blades; set => m.Blades = Math.Max(0, value); }
+        [Category("3. Rotor"), DisplayName("Polos del motor"), Description("Polos del motor de inducción (2, 4, 6…). Se usa en el análisis de corriente (MCSA): velocidad sincrónica = 120·f/polos.")]
+        public int Poles { get => m.Poles; set => m.Poles = Math.Clamp(value / 2 * 2, 2, 48); }
         [Category("3. Rotor"), DisplayName("Dientes del engranaje"), Description("Dientes del engranaje montado en este eje (0 = sin engranaje). Se usa para la frecuencia de engrane (GMF).")]
         public int GearTeeth { get => m.GearTeeth; set => m.GearTeeth = Math.Max(0, value); }
         [Category("3. Rotor"), DisplayName("Eje vertical")]

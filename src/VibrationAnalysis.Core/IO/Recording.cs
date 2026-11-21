@@ -138,6 +138,8 @@ public static class CsvRecordingReader
         "m/s2" or "m/s²" or "ms2" => VibrationUnit.AccelerationMs2,
         "mm/s" or "mms" => VibrationUnit.VelocityMmS,
         "um" or "µm" or "micron" => VibrationUnit.DisplacementUm,
+        "a" or "amp" or "amperes" => VibrationUnit.CurrentA,
+        "v" or "volt" or "volts" => VibrationUnit.VoltageV,
         _ => null,
     };
 
@@ -164,6 +166,8 @@ public static class CsvRecordingReader
         VibrationUnit.AccelerationG => "g",
         VibrationUnit.AccelerationMs2 => "m/s2",
         VibrationUnit.VelocityMmS => "mm/s",
+        VibrationUnit.CurrentA => "A",
+        VibrationUnit.VoltageV => "V",
         _ => "um",
     };
 }
@@ -220,5 +224,24 @@ public static class WavRecordingReader
         for (int c = 0; c < channels; c++)
             if (c != tachChannel) list.Add(new Channel($"Canal {c + 1}", unit, ch[c].Select(v => v * scale).ToArray()));
         return new Recording(rate, list, tachChannel >= 0 && tachChannel < channels ? ch[tachChannel] : null, nominalRpm, "WAV");
+    }
+}
+
+/// <summary>Escritura de WAV PCM de 16 bits (para escuchar el ultrasonido heterodinado).</summary>
+public static class WavWriter
+{
+    /// <summary>Normaliza al 90 % del fondo de escala y escribe mono 16 bits.</summary>
+    public static byte[] Mono16(IReadOnlyList<double> samples, int sampleRate)
+    {
+        double max = samples.Count == 0 ? 1 : Math.Max(1e-12, samples.Max(Math.Abs));
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms);
+        int data = samples.Count * 2;
+        w.Write("RIFF"u8.ToArray()); w.Write(36 + data); w.Write("WAVE"u8.ToArray());
+        w.Write("fmt "u8.ToArray()); w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(sampleRate); w.Write(sampleRate * 2); w.Write((short)2); w.Write((short)16);
+        w.Write("data"u8.ToArray()); w.Write(data);
+        foreach (var v in samples) w.Write((short)Math.Round(Math.Clamp(v / max * 0.9, -1, 1) * 32767));
+        w.Flush();
+        return ms.ToArray();
     }
 }

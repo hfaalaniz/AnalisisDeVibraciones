@@ -109,6 +109,8 @@ namespace VibrationAnalysis.UI
         private Label lblTrendSummary, lblRoute, lblDbPath;
         private CheckBox chkSaveWave;
         private int routeIndex = -1;
+        private CheckBox chkTemp;
+        private NumericUpDown nudTemp;
 
         public MainForm()
         {
@@ -393,6 +395,7 @@ namespace VibrationAnalysis.UI
             {
                 var ch = recording.Channels[cmbChannel.SelectedIndex];
                 double fs = recording.SampleRate;
+                bool electrical = SignalTools.IsElectrical(ch.Unit);
                 var view = SignalTools.Convert(ch.Data, fs, ch.Unit, ViewUnit, ViewUnit == VibrationUnit.AccelerationG && ch.Unit is VibrationUnit.AccelerationG or VibrationUnit.AccelerationMs2 ? 0 : 2.0);
                 var times = Enumerable.Range(0, view.Length).Select(i => i / fs).ToArray();
                 double rpm = CurrentRpm();
@@ -404,12 +407,12 @@ namespace VibrationAnalysis.UI
                 if (machine.Bearing != null) spectrum.BearingDefectFrequency = machine.Bearing.BpfoOrder * rpm / 60;
                 spectrum.SetData(sp.Frequencies.Take(maxBin).ToArray(), sp.Amplitudes.Take(maxBin).ToArray());
                 var st = SignalTools.Statistics(view);
-                string u = SignalTools.Symbol(ViewUnit);
+                string u = SignalTools.Symbol(electrical ? ch.Unit : ViewUnit);
                 string oneX = recording.HasPhaseReference ? recording.Reading1X(cmbChannel.SelectedIndex).ToString() + " (" + SignalTools.Symbol(ch.Unit) + " pico ∠ fase)" : "sin tacómetro: sin fase";
                 lblStats.Text = $"RMS {st.Rms:0.000} {u}   Pico {st.Peak:0.000}   Pico-pico {st.PeakToPeak:0.000}   Factor de cresta {st.CrestFactor:0.00}   Curtosis {st.Kurtosis:0.00}\n" +
                                 $"Velocidad {rpm:0.0} rpm ({rpm / 60:0.00} Hz)   1X: {oneX}   Resolución {sp.Resolution:0.###} Hz   {recording.Duration:0.00} s";
                 UpdateDiagnosis();
-                PublishCurrentToModbus();
+                if (!electrical) PublishCurrentToModbus();
                 if (tabs.SelectedTab == advPage) RunAdvancedAnalysis();
                 else if (tabs.SelectedTab == trPage) RunTransientAnalysis();
             }
@@ -571,6 +574,17 @@ namespace VibrationAnalysis.UI
             if (recording == null || cmbChannel.SelectedIndex < 0) return;
             var ch = recording.Channels[cmbChannel.SelectedIndex];
             double fs = recording.SampleRate;
+            if (SignalTools.IsElectrical(ch.Unit))
+            {
+                lblSeverity.Text = $"Canal «{ch.Name}» en {SignalTools.Symbol(ch.Unit)}: no es vibración";
+                lblSeverity.ForeColor = SystemColors.ControlText;
+                severityBar.BackColor = SystemColors.Control;
+                lblSeverityDesc.Text = ch.Unit == VibrationUnit.CurrentA
+                    ? "Es una corriente: el análisis de barras del rotor, excentricidad, armónicos y desbalance está en la pestaña 4 → «Corriente del motor (MCSA)»."
+                    : "Es una tensión: si es un sensor de ultrasonido, analizalo en la pestaña 4 → «Ultrasonido».";
+                lvFindings.Items.Clear();
+                return;
+            }
             var vel = SignalTools.Convert(ch.Data, fs, ch.Unit, VibrationUnit.VelocityMmS, 10);
             var sp = SpectrumAnalyzer.Compute(vel, fs, WindowType.Hann);
             double vrms = sp.BandRms(10, Math.Min(1000, fs / 2), sp.NoiseBandwidthBins);
@@ -623,7 +637,11 @@ namespace VibrationAnalysis.UI
         };
 
         // ───────────────────────────── 4. Análisis avanzado ─────────────────────────────
-        private static readonly string[] AdvModes = { "Espectro promediado", "Densidad espectral (PSD)", "Zoom FFT", "Envolvente (demodulación)", "Cepstrum", "Curtosis espectral" };
+        private static readonly string[] AdvModes = { "Espectro promediado", "Densidad espectral (PSD)", "Zoom FFT", "Envolvente (demodulación)", "Cepstrum", "Curtosis espectral", "Corriente del motor (MCSA)", "Ultrasonido" };
+        private FlowLayoutPanel pnlAdvMcsa, pnlAdvUs;
+        private CheckBox chkSimBroken;
+        private NumericUpDown nudUsCarrier;
+        private byte[] lastUsWav;
 
         private TabPage BuildAnalysisTab()
         {
@@ -644,9 +662,13 @@ namespace VibrationAnalysis.UI
             pnlAdvBlock = Group(Lbl("Bloque:"), cmbAdvBlock, Lbl("Solape %:"), nudAdvOverlap, Lbl("Promedio:"), cmbAdvAvg);
             pnlAdvBand = Group(Lbl("Banda (Hz):"), nudBandLow, Lbl("–"), nudBandHigh, Btn("Sugerir banda", (s, e) => SuggestEnvelopeBand()));
             pnlAdvZoom = Group(Lbl("Centro (Hz):"), nudZoomCenter, Lbl("Ancho (Hz):"), nudZoomSpan, Btn("Centrar en 1X", (s, e) => { nudZoomCenter.Value = Clamp(nudZoomCenter, CurrentRpm() / 60); RunAdvancedAnalysis(); }));
+            chkSimBroken = new CheckBox { Text = "con barras rotas", AutoSize = true, Checked = true, Margin = new Padding(4, 8, 4, 0) };
+            pnlAdvMcsa = Group(Btn("Simular corriente del motor (3 fases)", (s, e) => SimulateMotorCurrent()), chkSimBroken);
+            nudUsCarrier = Nud(20000, 90000, 38000, 0); nudUsCarrier.Width = 75;
+            pnlAdvUs = Group(Lbl("Portadora (Hz):"), nudUsCarrier, Btn("Escuchar (heterodino)", (s, e) => PlayUltrasound()), Btn("Guardar WAV", (s, e) => SaveUltrasoundWav()));
             top.Controls.AddRange(new Control[]
             {
-                Lbl("Análisis:"), cmbAdvMode, Lbl("Magnitud:"), cmbAdvUnit, Lbl("Ventana:"), cmbAdvWindow, pnlAdvBlock, pnlAdvBand, pnlAdvZoom,
+                Lbl("Análisis:"), cmbAdvMode, Lbl("Magnitud:"), cmbAdvUnit, Lbl("Ventana:"), cmbAdvWindow, pnlAdvBlock, pnlAdvBand, pnlAdvZoom, pnlAdvMcsa, pnlAdvUs,
                 Lbl("Hasta (Hz, 0 = auto):"), nudAdvMaxHz, chkAdvLog, chkAdvMarkers,
                 Btn("Calcular", (s, e) => RunAdvancedAnalysis()),
                 Btn("Exportar CSV", (s, e) => ExportAdvanced(false)),
@@ -697,8 +719,10 @@ namespace VibrationAnalysis.UI
             cmbAdvAvg.Enabled = m == 0;
             pnlAdvBand.Visible = m is 3 or 5;
             pnlAdvZoom.Visible = m == 2;
+            pnlAdvMcsa.Visible = m == 6;
+            pnlAdvUs.Visible = m == 7;
             cmbAdvUnit.Enabled = m is 0 or 1 or 2 or 4;
-            chkAdvLog.Enabled = m is 0 or 1 or 2 or 3;
+            chkAdvLog.Enabled = m is 0 or 1 or 2 or 3 or 7;
         }
 
         private VibrationUnit AdvUnit => cmbAdvUnit.SelectedIndex switch { 1 => VibrationUnit.VelocityMmS, 2 => VibrationUnit.DisplacementUm, _ => VibrationUnit.AccelerationG };
@@ -759,6 +783,8 @@ namespace VibrationAnalysis.UI
                 advPlot.Title = $"{AdvModes[mode]} · canal «{ch.Name}» · {f1 * 60:0} rpm";
 
                 if (mode == 4) { ShowCepstrum(x, fs, f1, window); return; }
+                if (mode == 6) { ShowMcsa(); return; }
+                if (mode == 7) { ShowUltrasound(); return; }
                 if (mode == 5) { ShowSpectralKurtosis(x, fs, f1); return; }
 
                 Spectrum sp;
@@ -835,6 +861,110 @@ namespace VibrationAnalysis.UI
                 lblAdvSummary.Text = "No se pudo calcular: " + ex.Message;
                 LogManager.Instance.LogError("Análisis avanzado: " + ex);
             }
+        }
+
+        // ───────── Corriente del motor (MCSA) y ultrasonido ─────────
+        private void ShowMcsa()
+        {
+            var ch = recording.Channels[cmbChannel.SelectedIndex];
+            if (ch.Unit != VibrationUnit.CurrentA)
+            {
+                lblAdvSummary.Text = "Elegí un canal de corriente (A): de la placa/DAQ con tipo «Pinza de corriente», de un CSV con unidad A, o tocá «Simular corriente del motor».";
+                advPlot.SetData(Array.Empty<double>(), Array.Empty<double>());
+                return;
+            }
+            double fs = recording.SampleRate;
+            double rpm = recording.HasPhaseReference ? recording.MeasuredRpm() : machine.Rpm;
+            var m = MotorCurrentAnalysis.Analyze(ch.Data, fs, machine.LineFrequencyHz > 0 ? machine.LineFrequencyHz : 50, machine.Poles, rpm);
+            var z = m.Zoom;
+            advPlot.XLabel = "Frecuencia (Hz)"; advPlot.YLabel = "Corriente"; advPlot.XFormat = "0.##";
+            advPlot.LogY = true; advPlot.DbReference = Math.Max(m.LineAmplitude, 1e-9);
+            advPlot.Title = $"MCSA · «{ch.Name}» · {machine.Poles} polos";
+            advPlot.SetData(z.Frequencies, z.Amplitudes);
+            advPlot.Markers.Add(new XYPlotControl.Marker(m.LineHz, $"red {m.LineHz:0.###}", Color.FromArgb(200, 150, 0)));
+            if (!double.IsNaN(m.Slip))
+            {
+                double sb = 2 * m.Slip * m.LineHz;
+                advPlot.Markers.Add(new XYPlotControl.Marker(m.LineHz - sb, "f(1−2s)", Color.FromArgb(200, 40, 40)));
+                advPlot.Markers.Add(new XYPlotControl.Marker(m.LineHz + sb, "f(1+2s)", Color.FromArgb(200, 40, 40)));
+            }
+            var others = recording.Channels.Where(c => c.Unit == VibrationUnit.CurrentA).Select(c => SignalTools.Statistics(c.Data).Rms).ToArray();
+            string unb = others.Length >= 3 ? $" · desbalance {MotorCurrentAnalysis.Unbalance(others.Take(3).ToArray()):0.0} %" : "";
+            void Row(string a, string b, string c = "", string d = "") => lvAdvPeaks.Items.Add(new ListViewItem(new[] { a, b, c, d }));
+            Row("Red", $"{m.LineHz:0.###} Hz", $"{m.LineAmplitude:0.###} A pico");
+            Row("Velocidad", double.IsNaN(m.Slip) ? "—" : $"{m.Rpm:0} rpm", double.IsNaN(m.Slip) ? "" : $"s = {m.Slip * 100:0.00} %");
+            Row("Barras (banda inf.)", double.IsFinite(m.LowerSidebandDb) ? $"{m.LowerSidebandDb:0.0} dB" : "—", "", m.RotorSeverity >= 0 ? $"nivel {m.RotorSeverity}/5" : "");
+            Row("Barras (banda sup.)", double.IsFinite(m.UpperSidebandDb) ? $"{m.UpperSidebandDb:0.0} dB" : "—");
+            Row("Excentricidad", double.IsFinite(m.EccentricityDb) ? $"{m.EccentricityDb:0.0} dB" : "—");
+            Row("THD", $"{m.ThdPercent:0.0} %");
+            foreach (var (o, p) in m.Harmonics.Where(h => h.Percent >= 0.5)) Row($"Armónico {o}", $"{p:0.0} %");
+            lblAdvSummary.Text = $"Rotor: {m.RotorCondition} (banda inferior a {(double.IsFinite(m.LowerSidebandDb) ? m.LowerSidebandDb.ToString("0.0", Es) + " dB" : "—")}) · THD {m.ThdPercent:0.0} %{unb}
+" +
+                                 (m.Notes.Count > 0 ? string.Join(" ", m.Notes) : $"Resolución {z.Resolution:0.###} Hz con {recording.Duration:0.#} s de registro. Escala en dB respecto de la línea.");
+            advPlot.Invalidate();
+        }
+
+        private void SimulateMotorCurrent()
+        {
+            double fs = 5000, secs = 20, line = machine.LineFrequencyHz > 0 ? machine.LineFrequencyHz : 50;
+            double ns = 120 * line / machine.Poles;
+            double rpm = machine.Rpm > 0 && machine.Rpm < ns ? machine.Rpm : ns * 0.97;
+            double bb = chkSimBroken.Checked ? 38 : 0;
+            var chans = new List<Channel>
+            {
+                new Channel("Corriente R", VibrationUnit.CurrentA, MotorCurrentAnalysis.Simulate(fs, secs, line, 14, machine.Poles, rpm, bb, 48, 3, 0.01, 0, 1)),
+                new Channel("Corriente S", VibrationUnit.CurrentA, MotorCurrentAnalysis.Simulate(fs, secs, line, 14.6, machine.Poles, rpm, bb, 48, 3, 0.01, -120, 2)),
+                new Channel("Corriente T", VibrationUnit.CurrentA, MotorCurrentAnalysis.Simulate(fs, secs, line, 13.7, machine.Poles, rpm, bb, 48, 3, 0.01, 120, 3)),
+            };
+            cmbSource.SelectedIndex = (int)Source.File;
+            SetRecording(new Recording(fs, chans, null, rpm, $"Motor simulado ({machine.Poles} polos, {rpm:0} rpm{(bb > 0 ? ", barras rotas" : "")})"));
+            if (cmbAdvMode.SelectedIndex != 6) cmbAdvMode.SelectedIndex = 6; else RunAdvancedAnalysis();
+            SetStatus("Corriente de motor simulada (3 fases, 20 s a 5 kHz) cargada como señal actual.");
+        }
+
+        private void ShowUltrasound()
+        {
+            var ch = recording.Channels[cmbChannel.SelectedIndex];
+            double fs = recording.SampleRate;
+            if (fs < 80000)
+            {
+                lblAdvSummary.Text = $"El ultrasonido necesita muestrear a 96 kHz o más (la señal actual está a {fs:0} Hz). Usá la placa de sonido a 192 kHz o un DAQ con un sensor de ultrasonido.";
+                advPlot.SetData(Array.Empty<double>(), Array.Empty<double>());
+                lastUsWav = null;
+                return;
+            }
+            var u = UltrasoundAnalysis.Analyze(ch.Data, fs);
+            var sp = AdvancedSpectrum.Averaged(ch.Data, fs, 8192, 0.5, WindowType.Hann);
+            advPlot.XLabel = "Frecuencia (Hz)"; advPlot.YLabel = "Amplitud (V)"; advPlot.XFormat = "0";
+            advPlot.LogY = chkAdvLog.Checked; advPlot.DbReference = 1e-6;
+            advPlot.Title = $"Ultrasonido · «{ch.Name}»";
+            advPlot.SetData(sp.Frequencies, sp.Amplitudes);
+            advPlot.SetView(Math.Max(0, u.BandLow - 5000), fs / 2);
+            advPlot.Markers.Add(new XYPlotControl.Marker(u.BandLow, "banda", Color.FromArgb(200, 70, 20)));
+            advPlot.Markers.Add(new XYPlotControl.Marker(u.BandHigh, "", Color.FromArgb(200, 70, 20)));
+            advPlot.Markers.Add(new XYPlotControl.Marker((double)nudUsCarrier.Value, "portadora", Color.FromArgb(40, 110, 200)));
+            lvAdvPeaks.Items.Add(new ListViewItem(new[] { "RMS", $"{u.RmsDbuV:0.0} dBµV", "", $"{u.RmsVolts * 1000:0.###} mV" }));
+            lvAdvPeaks.Items.Add(new ListViewItem(new[] { "Pico", $"{u.PeakDbuV:0.0} dBµV" }));
+            lvAdvPeaks.Items.Add(new ListViewItem(new[] { "Factor de cresta", u.CrestFactor.ToString("0.00", Es) }));
+            lastUsWav = WavWriter.Mono16(UltrasoundAnalysis.Heterodyne(ch.Data, fs, (double)nudUsCarrier.Value, 8000), 8000);
+            lblAdvSummary.Text = $"Ultrasonido {u.BandLow / 1000:0}–{u.BandHigh / 1000:0} kHz: {u.RmsDbuV:0.0} dBµV RMS, pico {u.PeakDbuV:0.0} dBµV, cresta {u.CrestFactor:0.0}.
+" +
+                                 "Guardalo en Tendencias y compará con la línea base: +8 dB falta lubricación · +12 falla incipiente · +16 falla · +35 catastrófica.";
+            advPlot.Invalidate();
+        }
+
+        private void PlayUltrasound()
+        {
+            if (lastUsWav == null) { Warn("Calculá primero el análisis de ultrasonido (señal muestreada a 96 kHz o más)."); return; }
+            try { using var ms = new MemoryStream(lastUsWav); using var player = new System.Media.SoundPlayer(ms); player.Play(); }
+            catch (Exception ex) { Error("No se pudo reproducir", ex); }
+        }
+
+        private void SaveUltrasoundWav()
+        {
+            if (lastUsWav == null) { Warn("Calculá primero el análisis de ultrasonido."); return; }
+            using var sfd = new SaveFileDialog { Filter = "WAV|*.wav", FileName = $"ultrasonido_{DateTime.Now:yyyyMMdd_HHmmss}.wav" };
+            if (sfd.ShowDialog(this) == DialogResult.OK) File.WriteAllBytes(sfd.FileName, lastUsWav);
         }
 
         private string BearingEnvelopeSummary(Spectrum env, double f1)
@@ -1270,12 +1400,15 @@ namespace VibrationAnalysis.UI
             cmbTrendFeature = Combo(FeatureKeys.Names.Values, 260);
             cmbTrendFeature.SelectedIndexChanged += (s, e) => ShowTrend();
             chkSaveWave = new CheckBox { Text = "Guardar también la señal", AutoSize = true, Checked = true, Margin = new Padding(8, 8, 4, 0) };
+            chkTemp = new CheckBox { Text = "Temperatura (°C):", AutoSize = true, Margin = new Padding(8, 8, 0, 0) };
+            nudTemp = Nud(-50, 400, 40, 1); nudTemp.Width = 65;
+            nudTemp.ValueChanged += (s, e) => chkTemp.Checked = true;
             cmbRoute = Combo(new string[0], 180);
             cmbRoute.SelectedIndexChanged += (s, e) => { routeIndex = cmbRoute.SelectedIndex > 0 ? 0 : -1; UpdateRouteLabel(); };
             lblRoute = new Label { AutoSize = true, Margin = new Padding(6, 8, 0, 0), Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
             bar2.Controls.AddRange(new Control[]
             {
-                Btn("Guardar medición actual", (s, e) => SaveCurrentMeasurement()), chkSaveWave,
+                Btn("Guardar medición actual", (s, e) => SaveCurrentMeasurement()), chkSaveWave, chkTemp, nudTemp,
                 Lbl("Indicador:"), cmbTrendFeature,
                 Btn("Marcar línea base", (s, e) => SetBaseline()), Btn("Eliminar medición", (s, e) => DeleteSelectedMeasurement()), Btn("Exportar CSV", (s, e) => ExportTrend()),
                 Lbl("Ruta:"), cmbRoute, Btn("Nueva ruta…", (s, e) => NewRoute()), Btn("◀", (s, e) => MoveRoute(-1)), Btn("▶", (s, e) => MoveRoute(1)), lblRoute,
@@ -1519,6 +1652,7 @@ namespace VibrationAnalysis.UI
             {
                 var rec = FeatureExtractor.Extract(recording, cmbChannel.SelectedIndex, asset.Machine, pt.Id);
                 rec.Notes = recording.Source;
+                if (chkTemp.Checked) rec.Features[FeatureKeys.Temperature] = (double)nudTemp.Value;
                 trendDb.AddMeasurement(rec, chkSaveWave.Checked ? recording : null);
                 var hist = trendDb.Measurements(pt.Id);
                 var lvl = TrendAnalysis.WorstLevel(TrendAnalysis.Evaluate(rec, pt, asset.Machine.MachineClass, hist));

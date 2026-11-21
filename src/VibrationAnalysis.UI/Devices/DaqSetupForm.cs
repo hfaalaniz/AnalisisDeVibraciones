@@ -12,7 +12,7 @@ namespace VibrationAnalysis.UI.Devices
     /// <summary>Configuración del equipo (placa de sonido o NI-DAQmx) y de sus canales: tipo de sensor, sensibilidad, IEPE, rango y calibración.</summary>
     public sealed class DaqSetupForm : Form
     {
-        private static readonly string[] Kinds = { "Acelerómetro IEPE (mV/g)", "Acelerómetro de tensión (mV/g)", "Sensor de velocidad (mV/(mm/s))", "Sonda de proximidad (mV/µm)", "Tacómetro / keyphasor" };
+        private static readonly string[] Kinds = { "Acelerómetro IEPE (mV/g)", "Acelerómetro de tensión (mV/g)", "Sensor de velocidad (mV/(mm/s))", "Sonda de proximidad (mV/µm)", "Tacómetro / keyphasor", "Pinza de corriente (mV/A)", "Sensor de ultrasonido (mV/V)" };
         private readonly bool soundCard;
         private readonly Func<IAcquisitionDevice> factory;
         private readonly ComboBox cmbDevice = new ComboBox { Width = 320 };

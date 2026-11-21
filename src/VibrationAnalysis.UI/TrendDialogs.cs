@@ -51,7 +51,7 @@ namespace VibrationAnalysis.UI
     /// <summary>Editor de las reglas de alarma de un punto de medición.</summary>
     public sealed class AlarmEditorForm : Form
     {
-        private static readonly string[] Kinds = { "Valor absoluto", "Múltiplo de la línea base", "Estadístico (media + k·σ)", "Zonas ISO 20816" };
+        private static readonly string[] Kinds = { "Valor absoluto", "Múltiplo de la línea base", "Estadístico (media + k·σ)", "Zonas ISO 20816", "Diferencia con la línea base (dB)" };
         private readonly DataGridView grid = new DataGridView
         {
             Dock = DockStyle.Fill, AllowUserToAddRows = true, AllowUserToDeleteRows = true, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
@@ -79,8 +79,8 @@ namespace VibrationAnalysis.UI
             var help = new System.Windows.Forms.Label
             {
                 Dock = DockStyle.Top, Height = 54, Padding = new Padding(8),
-                Text = "Absoluto: valores en las unidades del indicador. Múltiplo de la base: p. ej. 2 y 4 = el doble y el cuádruple de la línea base.\n" +
-                       "Estadístico: k para media + k·σ de la línea base (p. ej. 3 y 6). ISO 20816: usa la clase de la máquina (B/C alerta, C/D peligro).",
+                Text = "Absoluto: valores en las unidades del indicador (en «MCSA … dB» menos es peor: alerta 42, peligro 36). Múltiplo de la base: 2 y 4 = el doble y el cuádruple.\n" +
+                       "Estadístico: media + k·σ de la base (3 y 6). ISO 20816: clase de la máquina. Diferencia en dB: base + 8 y + 16 (ultrasonido).",
             };
             var ok = new Button { Text = "Guardar", AutoSize = true };
             ok.Click += (s, e) => { if (Collect()) { DialogResult = DialogResult.OK; Close(); } };
@@ -120,9 +120,10 @@ namespace VibrationAnalysis.UI
                            double.TryParse(str, NumberStyles.Float, CultureInfo.InvariantCulture, out v) ? v : double.NaN;
                 }
                 double a = Num(row.Cells[2].Value), d = Num(row.Cells[3].Value);
-                if ((AlarmKind)ki != AlarmKind.Iso && (double.IsNaN(a) || double.IsNaN(d) || d < a))
+                bool lower = FeatureKeys.LowerIsWorse(keys[fi]) && (AlarmKind)ki == AlarmKind.Absolute;
+                if ((AlarmKind)ki != AlarmKind.Iso && (double.IsNaN(a) || double.IsNaN(d) || (lower ? d > a : d < a)))
                 {
-                    MessageBox.Show(this, $"Revisá «{fname}»: alerta y peligro deben ser números y peligro ≥ alerta.", "Alarmas", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, $"Revisá «{fname}»: alerta y peligro deben ser números y peligro {(lower ? "≤" : "≥")} alerta{(lower ? " (en este indicador, menos es peor)" : "")}.", "Alarmas", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return false;
                 }
                 list.Add(new AlarmRule(keys[fi], (AlarmKind)ki, double.IsNaN(a) ? 0 : a, double.IsNaN(d) ? 0 : d) { Enabled = row.Cells[4].Value is bool b && b });

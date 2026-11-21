@@ -62,6 +62,12 @@ public static class TrendAnalysis
                 sd = Math.Max(sd, Math.Abs(m) * 0.05);   // evita límites pegados a la media con bases muy estables
                 return (m + rule.Alert * sd, m + rule.Danger * sd);
             }
+            case AlarmKind.BaselineDelta:
+            {
+                if (vals.Count == 0) return (double.NaN, double.NaN);
+                double m = vals.Average();
+                return (m + rule.Alert, m + rule.Danger);
+            }
             default:
                 return (rule.Alert, rule.Danger);
         }
@@ -79,7 +85,9 @@ public static class TrendAnalysis
             if (double.IsNaN(v)) continue;
             var (alert, danger) = Limits(rule, machineClass, baseline);
             if (double.IsNaN(alert)) continue;
-            var lvl = v >= danger ? AlarmLevel.Danger : v >= alert ? AlarmLevel.Alert : AlarmLevel.Normal;
+            var lvl = FeatureKeys.LowerIsWorse(rule.Feature)
+                ? (v <= danger ? AlarmLevel.Danger : v <= alert ? AlarmLevel.Alert : AlarmLevel.Normal)
+                : (v >= danger ? AlarmLevel.Danger : v >= alert ? AlarmLevel.Alert : AlarmLevel.Normal);
             string name = FeatureKeys.Name(rule.Feature);
             string msg = lvl switch
             {

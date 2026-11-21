@@ -15,6 +15,7 @@ public static class FeatureExtractor
         double fs = r.SampleRate;
         double rpm = r.HasPhaseReference ? r.MeasuredRpm() : (r.NominalRpm > 0 ? r.NominalRpm : machine.Rpm);
         double f1 = rpm / 60;
+        if (SignalTools.IsElectrical(ch.Unit)) return ExtractElectrical(r, channel, machine, pointId, rpm);
         bool isAcc = ch.Unit is VibrationUnit.AccelerationG or VibrationUnit.AccelerationMs2;
         var vel = SignalTools.Convert(ch.Data, fs, ch.Unit, VibrationUnit.VelocityMmS, 10);
         var acc = SignalTools.Convert(ch.Data, fs, ch.Unit, VibrationUnit.AccelerationG, isAcc ? 0 : 2);
@@ -73,6 +74,36 @@ public static class FeatureExtractor
         }
         catch (ArgumentException) { /* señal demasiado corta o fs baja: sin envolvente */ }
 
+        return new MeasurementRecord { PointId = pointId, Rpm = rpm, SampleRate = fs, Features = f, Timestamp = DateTime.Now };
+    }
+
+    /// <summary>Canales de corriente (MCSA, desbalance, THD) o de tensión (ultrasonido si el muestreo lo permite).</summary>
+    private static MeasurementRecord ExtractElectrical(Recording r, int channel, Machine machine, string pointId, double rpm)
+    {
+        var ch = r.Channels[channel];
+        double fs = r.SampleRate;
+        var f = new Dictionary<string, double>();
+        if (ch.Unit == VibrationUnit.CurrentA)
+        {
+            f[FeatureKeys.CurrentRms] = SignalTools.Statistics(ch.Data).Rms;
+            var currents = r.Channels.Where(c => c.Unit == VibrationUnit.CurrentA).Select(c => SignalTools.Statistics(c.Data).Rms).ToArray();
+            if (currents.Length >= 3) f[FeatureKeys.CurrentUnbalance] = MotorCurrentAnalysis.Unbalance(currents.Take(3).ToArray());
+            try
+            {
+                var m = MotorCurrentAnalysis.Analyze(ch.Data, fs, machine.LineFrequencyHz > 0 ? machine.LineFrequencyHz : 50, machine.Poles, rpm);
+                f[FeatureKeys.CurrentThd] = m.ThdPercent;
+                if (double.IsFinite(m.LowerSidebandDb)) f[FeatureKeys.BrokenBarDb] = m.LowerSidebandDb;
+                if (double.IsFinite(m.EccentricityDb)) f[FeatureKeys.EccentricityDb] = m.EccentricityDb;
+                if (!double.IsNaN(m.Slip)) { f[FeatureKeys.Slip] = m.Slip * 100; rpm = m.Rpm; }
+            }
+            catch (ArgumentException) { /* muestreo o registro insuficiente para MCSA */ }
+        }
+        else if (fs >= 80000)
+        {
+            var u = UltrasoundAnalysis.Analyze(ch.Data, fs);
+            f[FeatureKeys.UltrasoundDb] = u.RmsDbuV;
+            f[FeatureKeys.UltrasoundCrest] = u.CrestFactor;
+        }
         return new MeasurementRecord { PointId = pointId, Rpm = rpm, SampleRate = fs, Features = f, Timestamp = DateTime.Now };
     }
 }

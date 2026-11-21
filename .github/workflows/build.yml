@@ -78,5 +78,5 @@ jobs:
       - name: Compilar multicanal con WiFi y MQTT
         run: |
           arduino-cli lib install PubSubClient
-          arduino-cli compile --fqbn esp32:esp32:esp32 --build-property "compiler.cpp.extra_flags=-DSENSOR_TYPE=2 -DUSE_WIFI=1 -DUSE_MQTT=1" firmware/esp32_multicanal
+          arduino-cli compile --fqbn esp32:esp32:esp32 --build-property "compiler.cpp.extra_flags=-DSENSOR_TYPE=2 -DUSE_WIFI=1 -DUSE_MQTT=1 -DUSE_MLX90614=1" firmware/esp32_multicanal
           arduino-cli compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc --build-property "compiler.cpp.extra_flags=-DSENSOR_TYPE=3 -DUSE_WIFI=1" firmware/esp32_multicanal
