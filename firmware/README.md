@@ -55,6 +55,16 @@ A5 5A | seq u16 | n u16 | ch u8 | n×ch int16 (muestra a muestra) | ⌈n/8⌉ by
 
 Cualquier equipo que envíe este formato (otro microcontrolador, un DAQ, un script) funciona con las dos apps.
 
+## Red: WiFi y MQTT (`esp32_multicanal`)
+
+Con `USE_WIFI 1` (y `WIFI_SSID`, `WIFI_PASS`, `DEVICE_ID` al principio del sketch) el sensor atiende el **mismo protocolo por TCP en el puerto 3333**: en la app de Windows elegir *Sensor por red (WiFi/TCP)* en la pestaña 2 con la IP que el ESP32 informa por el USB (`# WiFi conectado: 192.168.1.57, puerto 3333`).
+
+Con `USE_MQTT 1` además publica cada `MQTT_PERIOD_S` segundos, aunque nadie esté conectado, en `MQTT_PREFIX/DEVICE_ID/indicadores`:
+```json
+{"id":"vt01","sensor":"ADXL355","fs":4000,"acc_rms":0.08123,"acc_pico":0.31,"factor_cresta":3.8,"vel_rms":2.41,"rpm":1490.0,"n":40000}
+```
+Necesita la biblioteca **PubSubClient** (Administrador de bibliotecas). La app de Windows (pestaña 7) recibe estos mensajes, los muestra y, si se asocia el sensor a un punto, los guarda en la base de tendencias con sus alarmas.
+
 ## Montaje
 
 - Fijar el acelerómetro con **espárrago o base magnética** sobre la tapa del cojinete. Con cinta o adhesivo blando se pierden las frecuencias altas.
