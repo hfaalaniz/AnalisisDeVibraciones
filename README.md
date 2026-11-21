@@ -33,10 +33,10 @@ Autor: **Fabian Alaniz – ElectroNet** · +54 9 351 284-8802 · [www.developers
 ```
 src/VibrationAnalysis.Core/     Núcleo de cálculo (.NET 8, sin dependencias externas)
 src/VibrationAnalysis.UI/       App de escritorio WinForms
-tests/VibrationAnalysis.Core.Tests/  Pruebas del núcleo (28) y vectores de referencia para la web
+tests/VibrationAnalysis.Core.Tests/  Pruebas del núcleo (71) y vectores de referencia para la web
 web/                            Página del producto (index.html) y app web (app/)
 web/js/core/                    Motor de cálculo web (equivalente al núcleo C#)
-web/tests/                      Pruebas del motor web, incluida la paridad con C#
+tests/web/                      Pruebas del motor web, incluida la paridad con C#
 firmware/                       Sensor USB de ejemplo (ESP32 + ADXL345)
 .github/workflows/build.yml     Compila en Windows, corre las pruebas y genera el ejecutable
 ```
@@ -48,8 +48,12 @@ firmware/                       Sensor USB de ejemplo (ESP32 + ADXL345)
 dotnet run --project tests/VibrationAnalysis.Core.Tests
 
 # Vectores de referencia + pruebas de la web (Node 20+)
-dotnet run --project tests/VibrationAnalysis.Core.Tests -- --emit web/tests/vectors.json
-node --test web/tests/*.test.mjs
+dotnet run --project tests/VibrationAnalysis.Core.Tests -- --emit tests/web/vectors.json
+node --test tests/web/*.test.mjs
+
+# Análisis estático de la web (ESLint)
+npm install
+npm run lint
 
 # App de Windows (en Windows, o en Visual Studio 2022 abriendo AnalisisDeVibraciones.sln)
 dotnet run --project src/VibrationAnalysis.UI
@@ -72,13 +76,21 @@ Trae la rama desde GitHub, corre las pruebas (C# y web) y abre la app. Una sola 
 
 Opciones: `-Ejecutar todo|pruebas|escritorio|web|nada`, `-Guardar` (aparta cambios locales con `git stash`), `-Reiniciar` (iguala la rama local a GitHub), `-Puerto`.
 
-Cada push compila la app en Windows y corre todas las pruebas (GitHub Actions). Al crear una etiqueta `v*` (por ejemplo `v3.0.0`) se publican en **Releases** el **instalador** (`AnalisisVibraciones-<versión>-instalador.exe`: menú Inicio, escritorio, asociación de `.vaproj`, regla de firewall opcional) y el **zip portable**. Detalles y firma digital en [`installer/README.md`](installer/README.md).
+Cada push compila la app en Windows y corre todas las pruebas y el análisis estático (GitHub Actions). El núcleo y las pruebas usan los analizadores .NET recomendados y las advertencias cuentan como errores (`Directory.Build.props`, `.editorconfig`). Al crear una etiqueta `v*` (por ejemplo `v3.0.0`) se publican en **Releases** el **instalador** (`AnalisisVibraciones-<versión>-instalador.exe`: menú Inicio, escritorio, asociación de `.vaproj`, regla de firewall opcional) y el **zip portable**. Detalles y firma digital en [`installer/README.md`](installer/README.md).
 
 ## Publicar la web en Cloudflare Pages
 
 1. En Cloudflare → Workers & Pages → Crear → Pages → conectar este repositorio.
 2. Configuración de compilación: *Framework preset* **None**, *Build command* vacío, *Build output directory* **`web`**.
 3. La página del producto queda en la raíz y la aplicación en `/app/`.
+
+El sitio incluye:
+- `_headers`: política de seguridad (solo scripts propios), HSTS y caché que revalida el código en cada visita;
+- `_redirects`: `/manual` (manual de usuario) y `/descarga` (última versión para Windows);
+- `404.html`, `robots.txt` y `sitemap.xml`;
+- app instalable sin conexión (`manifest.webmanifest` y `sw.js`): una vez abierta, funciona en planta sin señal.
+
+Al publicar una versión nueva, actualizar `VERSION` en `web/sw.js` (las pruebas verifican que coincida con la del escritorio).
 
 ## Cómo se balancea
 
