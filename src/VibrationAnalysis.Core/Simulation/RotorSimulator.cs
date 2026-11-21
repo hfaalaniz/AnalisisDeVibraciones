@@ -38,6 +38,16 @@ public sealed class SimulatorSettings
     public double LineFrequencyHz { get; set; } = 50;
     public BearingGeometry Bearing { get; set; } = new(9, 7.94, 39.0, 0);
     public int Seed { get; set; } = 12345;
+    /// <summary>Segundo sensor a 90° del primero en el mismo plano (X/Y) para ver la órbita, en vez de un sensor por plano.</summary>
+    public bool ProbesXY { get; set; }
+    /// <summary>Simula un arranque o parada lineal de <see cref="RpmStart"/> a <see cref="RpmEnd"/> durante el registro.</summary>
+    public bool RunUp { get; set; }
+    public double RpmStart { get; set; } = 300;
+    public double RpmEnd { get; set; } = 3000;
+    /// <summary>Velocidad crítica del rotor (resonancia de 1 grado de libertad).</summary>
+    public double CriticalRpm { get; set; } = 1800;
+    /// <summary>Amortiguamiento relativo ζ de la resonancia.</summary>
+    public double Damping { get; set; } = 0.08;
     public List<PlaneMass> AddedMasses { get; } = new();
 }
 
@@ -101,7 +111,9 @@ public sealed class RotorSimulator
         int n = s.Samples;
         double fs = s.SampleRate;
         double f1 = s.Rpm / 60;
+        if (s.RunUp) return AcquireRunUp();
         var v1x = Expected1X();
+        if (s.ProbesXY && v1x.Length > 1) v1x[1] = new Phasor(v1x[0].Magnitude * 0.6, v1x[0].AngleDeg + 90);
         var chans = new List<Channel>();
         double startAngle = rng.NextDouble() * 2 * Math.PI; // la adquisición arranca en cualquier punto de la vuelta
         double t0 = (2 * Math.PI - startAngle) / (2 * Math.PI * f1); // primer pulso del tacómetro
@@ -131,7 +143,7 @@ public sealed class RotorSimulator
                 x[i] = v + s.NoiseMmS * Gauss();
             }
             if (s.BearingOuterRace > 0) AddBearingImpacts(x, fs, f1 * s.Bearing.BpfoOrder, s.BearingOuterRace * sideFactor);
-            chans.Add(new Channel($"Sensor {c + 1}", Dsp.VibrationUnit.VelocityMmS, x));
+            chans.Add(new Channel(ChannelName(c), Dsp.VibrationUnit.VelocityMmS, x));
         }
         var tach = new double[n];
         double period = 1 / f1, width = Math.Max(period * 0.03, 2 / fs);
@@ -142,6 +154,53 @@ public sealed class RotorSimulator
             tach[i] = ph < width ? 5.0 : 0.0;
         }
         return new Recording(fs, chans, tach, s.Rpm, "Simulador");
+    }
+
+    private string ChannelName(int c) => Settings.ProbesXY ? (c == 0 ? "X (horizontal)" : "Y (vertical)") : $"Sensor {c + 1}";
+
+    /// <summary>Respuesta de velocidad de un rotor con desbalance: ω·r²/√((1−r²)² + (2ζr)²) y su retraso de fase.</summary>
+    private (double Gain, double LagDeg) Resonance(double hz)
+    {
+        double wc = Math.Max(Settings.CriticalRpm, 1) / 60, r = hz / wc, z = Math.Max(Settings.Damping, 1e-3);
+        double mag = hz * r * r / Math.Sqrt(Math.Pow(1 - r * r, 2) + Math.Pow(2 * z * r, 2));
+        return (mag, Math.Atan2(2 * z * r, 1 - r * r) * 180 / Math.PI);
+    }
+
+    /// <summary>Arranque o parada: rampa lineal de velocidad con la resonancia en <see cref="SimulatorSettings.CriticalRpm"/>.</summary>
+    private Recording AcquireRunUp()
+    {
+        var s = Settings;
+        int n = s.Samples;
+        double fs = s.SampleRate, T = n / fs;
+        double fa = Math.Max(s.RpmStart, 1) / 60, fb = Math.Max(s.RpmEnd, 1) / 60;
+        var v1x = Expected1X();
+        if (s.ProbesXY && v1x.Length > 1) v1x[1] = new Phasor(v1x[0].Magnitude * 0.6, v1x[0].AngleDeg + 90);
+        var reference = Resonance(s.Rpm / 60);
+        var chans = new List<Channel>();
+        var theta = new double[n];
+        for (int i = 0; i < n; i++) { double t = i / fs; theta[i] = 2 * Math.PI * (fa * t + (fb - fa) * t * t / (2 * T)); }
+        for (int c = 0; c < v1x.Length; c++)
+        {
+            var x = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                double hz = fa + (fb - fa) * i / fs / T;
+                var (g, lag) = Resonance(hz);
+                double amp = v1x[c].Magnitude * g / Math.Max(reference.Gain, 1e-12);
+                double ph = (v1x[c].AngleDeg + lag - reference.LagDeg) * Math.PI / 180;
+                double v = amp * Math.Cos(theta[i] - ph);
+                if (s.Misalignment > 0) v += s.Misalignment * (hz / (s.Rpm / 60)) * Math.Cos(2 * theta[i] - 1.1);
+                x[i] = v + s.NoiseMmS * Gauss();
+            }
+            chans.Add(new Channel(ChannelName(c), Dsp.VibrationUnit.VelocityMmS, x));
+        }
+        var tach = new double[n];
+        for (int i = 0; i < n; i++)
+        {
+            double rev = theta[i] / (2 * Math.PI);
+            tach[i] = rev - Math.Floor(rev) < 0.03 ? 5.0 : 0.0;
+        }
+        return new Recording(fs, chans, tach, (s.RpmStart + s.RpmEnd) / 2, s.RpmEnd >= s.RpmStart ? "Simulador (arranque)" : "Simulador (parada)");
     }
 
     private void AddBearingImpacts(double[] x, double fs, double fDefect, double amp)
