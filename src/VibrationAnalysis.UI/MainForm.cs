@@ -2145,51 +2145,6 @@ namespace VibrationAnalysis.UI
         }
 
         // ───────────────────────────── 5. Informe ─────────────────────────────
-        private TabPage BuildReportTab()
-        {
-            var page = new TabPage("9. Informe");
-            var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(12) };
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            txtTech = new TextBox { Dock = DockStyle.Fill };
-            txtCompany = new TextBox { Dock = DockStyle.Fill };
-            txtNotes = new TextBox { Dock = DockStyle.Fill, Multiline = true, Height = 160, ScrollBars = ScrollBars.Vertical };
-            t.Controls.Add(Lbl("Técnico:"), 0, 0); t.Controls.Add(txtTech, 1, 0);
-            t.Controls.Add(Lbl("Empresa / cliente:"), 0, 1); t.Controls.Add(txtCompany, 1, 1);
-            t.Controls.Add(Lbl("Observaciones:"), 0, 2); t.Controls.Add(txtNotes, 1, 2);
-            var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
-            buttons.Controls.Add(Btn("Generar informe (HTML / PDF)…", (s, e) => GenerateReport()));
-            buttons.Controls.Add(Btn("Guardar proyecto…", (s, e) => SaveProject(true)));
-            buttons.Controls.Add(Btn("Exportar espectro (PNG)…", (s, e) => ExportSpectrumPng()));
-            t.Controls.Add(buttons, 1, 3);
-            t.Controls.Add(new Label { Text = "El informe se abre en el navegador: desde ahí se imprime o se guarda como PDF.", AutoSize = true }, 1, 4);
-            page.Controls.Add(t);
-            return page;
-        }
-
-        private void GenerateReport()
-        {
-            try
-            {
-                var rep = new HtmlReport
-                {
-                    Machine = machine,
-                    Technician = txtTech.Text,
-                    Company = txtCompany.Text,
-                    Severity = lastSeverity,
-                    Findings = lastFindings,
-                    Balancing = session,
-                    Notes = txtNotes.Text,
-                };
-                using var sfd = new SaveFileDialog { Filter = "Informe HTML|*.html", FileName = $"Informe_{Safe(machine.Name)}_{DateTime.Now:yyyyMMdd}.html" };
-                if (sfd.ShowDialog(this) != DialogResult.OK) return;
-                File.WriteAllText(sfd.FileName, rep.Build(), new UTF8Encoding(false));
-                OpenUrl(sfd.FileName);
-                SetStatus("Informe generado: " + sfd.FileName);
-            }
-            catch (Exception ex) { Error("No se pudo generar el informe", ex); }
-        }
-
         private void ExportSpectrumPng()
         {
             using var sfd = new SaveFileDialog { Filter = "PNG|*.png", FileName = "espectro.png" };

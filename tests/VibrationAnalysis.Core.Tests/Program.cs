@@ -11,6 +11,7 @@ using VibrationAnalysis.Core.Dsp;
 using VibrationAnalysis.Core.IO;
 using VibrationAnalysis.Core.Model;
 using VibrationAnalysis.Core.Network;
+using VibrationAnalysis.Core.Report;
 using VibrationAnalysis.Core.Simulation;
 using VibrationAnalysis.Core.Trending;
 
@@ -738,6 +739,47 @@ t.Run("Indicadores de canales de corriente (3 fases) y unidades eléctricas", ()
     T.Near(m.Get(FeatureKeys.BrokenBarDb), 40, 1.5, "barras"); T.True(double.IsNaN(m.Get(FeatureKeys.VelocityRms)), "sin indicadores de vibración");
     T.Eq(CsvRecordingReader.ParseUnit("A"), VibrationUnit.CurrentA, "unidad A");
     T.Near(SignalTools.Convert(ia, fs, VibrationUnit.CurrentA, VibrationUnit.VelocityMmS)[100], ia[100], 0, "la corriente no se convierte");
+});
+
+// ───────────── Informe profesional ─────────────
+t.Run("Gráfico SVG: ejes, reducción de puntos, límites y escape", () =>
+{
+    var x = Enumerable.Range(0, 20000).Select(i => i * 0.1).ToArray();
+    var y = x.Select(v => Math.Sin(v)).ToArray();
+    var svg = SvgChart.Render(new SvgChartSpec { Title = "Espectro <prueba>", XLabel = "Hz", YLabel = "mm/s", Series = { new SvgSeries(x, y) }, HLines = { (0.8, "Alerta", "#d28a00") }, Markers = { (100, "1X", "#888") } });
+    T.True(svg.StartsWith("<svg") && svg.EndsWith("</svg>"), "SVG completo");
+    T.True(svg.Contains("Espectro &lt;prueba&gt;"), "título escapado");
+    int pts = svg.Split("points=\"")[1].Split('"')[0].Split(' ').Length;
+    T.True(pts <= 2 * 700, $"reducción por píxel ({pts} puntos)");
+    T.True(svg.Contains("Alerta") && svg.Contains("1X"), "límite y marcador");
+    var two = SvgChart.Render(new SvgChartSpec { Series = { new SvgSeries(new[] { 1.0, 2 }, new[] { 1.0, 2 }) } }) + SvgChart.Render(new SvgChartSpec { Series = { new SvgSeries(new[] { 1.0, 2 }, new[] { 1.0, 2 }) } });
+    T.True(System.Text.RegularExpressions.Regex.Matches(two, "clipPath id=\"(clip\\d+)\"").Select(mm => mm.Groups[1].Value).Distinct().Count() == 2, "recortes con id único");
+    T.True(SvgChart.Render(new SvgChartSpec { Title = "vacío" }).Contains("</svg>"), "sin datos");
+});
+t.Run("Informe: estado general, secciones, recomendaciones y escape", () =>
+{
+    var machine = new Machine { Name = "VT-01 <script>", Rpm = 1500, Bearing = new BearingGeometry(9, 7.94, 39, 0) };
+    var sev = Severity.Evaluate(5.0, MachineClass.Iso10816_3_Group2Rigid);
+    var rec = new MeasurementRecord { Features = { [FeatureKeys.VelocityRms] = 5.0, [FeatureKeys.Temperature] = 97 } };
+    var alarms = new[] { new AlarmResult(FeatureKeys.Temperature, 97, AlarmLevel.Danger, 80, 95, "") };
+    var findings = new[] { new Finding(FaultType.Unbalance, "Desbalance", 0.8, "1X dominante", "Balancear el rotor.") };
+    var rep = new HtmlReport
+    {
+        Machine = machine, Severity = sev, Findings = findings, Indicators = rec, Alarms = alarms, Technician = "Ana", Client = "ACME", ReportNumber = "2026-015",
+        LogoDataUri = HtmlReport.ToDataUri(new byte[] { 0x89, 0x50, 0x4E, 0x47 }),
+        Figures = new[] { new ReportFigure("Espectro", SvgChart.Render(new SvgChartSpec { Series = { new SvgSeries(new[] { 0.0, 1 }, new[] { 0.0, 1 }) } })) },
+        Trends = new[] { new ReportTrend("VT-01 · LA H", FeatureKeys.VelocityRms, "<svg></svg>", "Llega a peligro ≈ 01/03/2027", alarms) },
+        Mcsa = MotorCurrentAnalysis.Analyze(MotorCurrentAnalysis.Simulate(5000, 12, 50, 10, 4, 1455, brokenBarDb: 38), 5000, 50, 4, 1455),
+    };
+    T.Eq(rep.Status, ReportStatus.Danger, "peligro por temperatura y zona D");
+    var html = rep.Build();
+    foreach (var part in new[] { "Resumen", "PELIGRO", "Recomendaciones", "Balancear el rotor.", "Gráficos", "Indicadores de la medición", "Tendencia · VT-01", "Corriente del motor (MCSA)", "Informe N.º 2026-015", "data:image/png;base64,", "Recibido por", "www.developers-soft.com" })
+        T.True(html.Contains(part), part);
+    T.True(!html.Contains("<script>") && html.Contains("VT-01 &lt;script&gt;"), "texto del usuario escapado");
+    T.True(html.Contains("@page{size:A4"), "formato A4");
+    var own = new HtmlReport { Machine = machine, Recommendations = "- Lubricar LA\n• Revisar anclajes\n" };
+    T.Eq(own.RecommendationList().Count, 2, "recomendaciones propias"); T.Eq(own.Status, ReportStatus.Acceptable, "sin datos: aceptable");
+    T.True(new HtmlReport { Machine = machine, Findings = findings }.RecommendationList()[0] == "Balancear el rotor.", "recomendación del diagnóstico");
 });
 
 int failed = t.Summary();
