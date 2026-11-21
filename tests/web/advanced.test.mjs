@@ -4,14 +4,14 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { spectrum } from '../js/core/dsp.js';
+import { spectrum } from '../../web/js/core/dsp.js';
 import {
   butterworth, averaged, psd, zoom, cepstrum, envelopeSpectrum, spectralKurtosis, autoEnvelopeBand,
   orderSpectrum, track, criticalSpeeds, spectrogram, unwrap,
-} from '../js/core/advanced.js';
-import { extractFeatures, evaluate, fit, limits, newPoint, TrendStore, worstLevel } from '../js/core/trend.js';
-import { RotorSimulator, defaultSimSettings } from '../js/core/io.js';
-import { buildReport } from '../js/core/report.js';
+} from '../../web/js/core/advanced.js';
+import { extractFeatures, evaluate, fit, limits, newPoint, TrendStore, worstLevel } from '../../web/js/core/trend.js';
+import { RotorSimulator, defaultSimSettings } from '../../web/js/core/io.js';
+import { buildReport } from '../../web/js/core/report.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const vecPath = join(here, 'vectors.json');

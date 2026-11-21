@@ -1,6 +1,6 @@
 // Tendencias y alarmas: indicadores por medición, límites (absolutos, ISO, línea base, estadísticos), ajuste y pronóstico.
 // Equivalente a VibrationAnalysis.Core.Trending (C#). Las fechas son milisegundos (Date.now()).
-import { spectrum, statistics, convertUnits, detectPulses, fitSinusoid } from './dsp.js';
+import { spectrum, statistics, convertUnits, fitSinusoid } from './dsp.js';
 import { MACHINE_CLASSES, bearingOrders } from './analysis.js';
 import { autoEnvelopeBand, envelope } from './advanced.js';
 

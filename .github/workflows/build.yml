@@ -88,9 +88,13 @@ jobs:
         with:
           node-version: '20'
       - name: Vectores de referencia desde C#
-        run: dotnet run --project tests/VibrationAnalysis.Core.Tests -c Release -- --emit web/tests/vectors.json
-      - name: Pruebas del motor web (y paridad con C#)
-        run: node --test web/tests/*.test.mjs
+        run: dotnet run --project tests/VibrationAnalysis.Core.Tests -c Release -- --emit tests/web/vectors.json
+      - name: Dependencias de desarrollo (ESLint)
+        run: npm ci --no-audit --no-fund
+      - name: Análisis estático (ESLint)
+        run: npm run lint
+      - name: Pruebas del motor web, paridad con C# y comprobaciones del sitio
+        run: node --test tests/web/*.test.mjs
 
   firmware:
     name: Firmware ESP32 (compilación)

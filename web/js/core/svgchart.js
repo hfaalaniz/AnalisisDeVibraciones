@@ -41,7 +41,7 @@ function reduce(s, xMin, xMax, width) {
 export function renderSvgChart(c) {
   const left = 64, right = 16, top = 30, bottom = 44, w = c.width || 760, h = c.height || 260, pw = w - left - right, ph = h - top - bottom;
   const all = (c.series || []).filter((s) => s.x.length && s.x.length === s.y.length);
-  let xMin = c.xMin ?? (all.length ? Math.min(...all.map((s) => Math.min(...s.x))) : 0);
+  const xMin = c.xMin ?? (all.length ? Math.min(...all.map((s) => Math.min(...s.x))) : 0);
   let xMax = c.xMax ?? (all.length ? Math.max(...all.map((s) => Math.max(...s.x))) : 1);
   if (xMax <= xMin) xMax = xMin + 1;
   let yMin = Infinity, yMax = -Infinity;
