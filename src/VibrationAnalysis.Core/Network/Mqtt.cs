@@ -158,9 +158,9 @@ public sealed class MqttClient : IDisposable
         connAck = new TaskCompletionSource<byte>(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = Task.Run(() => ReadLoop(cts.Token));
         await SendAsync(MqttCodec.BuildConnect(clientId, user, password, keepAliveS));
-        var done = await Task.WhenAny(connAck.Task, Task.Delay(timeoutMs));
-        if (done != connAck.Task) throw new TimeoutException("El broker no respondió al CONNECT.");
-        byte rc = connAck.Task.Result;
+        byte rc;
+        try { rc = await connAck.Task.WaitAsync(TimeSpan.FromMilliseconds(timeoutMs)); }
+        catch (TimeoutException) { throw new TimeoutException("El broker no respondió al CONNECT."); }
         if (rc != 0)
             throw new InvalidOperationException(rc switch
             {
@@ -180,7 +180,8 @@ public sealed class MqttClient : IDisposable
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (pending) pending[id] = tcs;
         await SendAsync(MqttCodec.BuildPublish(topic, data, 1, retain, id));
-        if (await Task.WhenAny(tcs.Task, Task.Delay(5000)) != tcs.Task)
+        try { await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+        catch (TimeoutException)
         {
             lock (pending) pending.Remove(id);
             throw new TimeoutException("El broker no confirmó la publicación (PUBACK).");
@@ -194,8 +195,10 @@ public sealed class MqttClient : IDisposable
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (pending) pending[id] = tcs;
         await SendAsync(MqttCodec.BuildSubscribe(id, filter, qos));
-        if (await Task.WhenAny(tcs.Task, Task.Delay(5000)) != tcs.Task) throw new TimeoutException("El broker no confirmó la suscripción (SUBACK).");
-        if (!tcs.Task.Result) throw new InvalidOperationException($"El broker rechazó la suscripción a «{filter}».");
+        bool granted;
+        try { granted = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+        catch (TimeoutException) { throw new TimeoutException("El broker no confirmó la suscripción (SUBACK)."); }
+        if (!granted) throw new InvalidOperationException($"El broker rechazó la suscripción a «{filter}».");
     }
 
     private ushort NextId() { lock (pending) { if (nextId == 0) nextId = 1; return nextId++; } }
