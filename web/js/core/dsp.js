@@ -16,7 +16,7 @@ export const angleDiff = (a, b) => {
 };
 
 const isPow2 = (n) => n > 0 && (n & (n - 1)) === 0;
-const nextPow2 = (n) => { let p = 1; while (p < n) p <<= 1; return p; };
+export const nextPow2 = (n) => { let p = 1; while (p < n) p <<= 1; return p; };
 
 function radix2(re, im, inverse) {
   const n = re.length;
@@ -77,7 +77,30 @@ export const WINDOWS = {
   hann: { name: 'Hanning', enbw: 1.5 },
   hamming: { name: 'Hamming', enbw: 1.363 },
   flattop: { name: 'Flat-top', enbw: 3.77 },
+  blackmanharris: { name: 'Blackman-Harris', enbw: null },
+  kaiser: { name: 'Kaiser (β 8,6)', enbw: null },
 };
+const enbwCache = {};
+/** ENBW en bins, igual que la app de escritorio (tabla o ventana de 4096 puntos). */
+export function windowEnbw(type) {
+  const t = WINDOWS[type] ? type : 'rect';
+  if (WINDOWS[t].enbw != null) return WINDOWS[t].enbw;
+  return (enbwCache[t] ??= enbwOf(windowFn(t, 4096)));
+}
+
+function besselI0(x) {
+  let sum = 1, term = 1;
+  const y = x * x / 4;
+  for (let k = 1; k < 60 && term > 1e-16 * sum; k++) { term *= y / (k * k); sum += term; }
+  return sum;
+}
+
+/** Ancho de banda de ruido equivalente (en bins) de una ventana. */
+export function enbwOf(w) {
+  let s1 = 0, s2 = 0;
+  for (const v of w) { s1 += v; s2 += v * v; }
+  return w.length * s2 / (s1 * s1);
+}
 
 export function windowFn(type, n) {
   const w = new Float64Array(n);
@@ -88,6 +111,8 @@ export function windowFn(type, n) {
       case 'hann': w[i] = 0.5 - 0.5 * Math.cos(x); break;
       case 'hamming': w[i] = 0.54 - 0.46 * Math.cos(x); break;
       case 'flattop': w[i] = 0.21557895 - 0.41663158 * Math.cos(x) + 0.277263158 * Math.cos(2 * x) - 0.083578947 * Math.cos(3 * x) + 0.006947368 * Math.cos(4 * x); break;
+      case 'blackmanharris': w[i] = 0.35875 - 0.48829 * Math.cos(x) + 0.14128 * Math.cos(2 * x) - 0.01168 * Math.cos(3 * x); break;
+      case 'kaiser': { const r = 2 * i / (n - 1) - 1; w[i] = besselI0(8.6 * Math.sqrt(Math.max(0, 1 - r * r))) / besselI0(8.6); break; }
       default: w[i] = 1;
     }
   }
@@ -117,10 +142,11 @@ export function spectrum(signal, fs, window = 'hann', removeMean = true) {
 }
 
 export class Spectrum {
-  constructor(freqs, amps, phases, resolution, fs, window) {
-    Object.assign(this, { freqs, amps, phases, resolution, fs, window });
+  constructor(freqs, amps, phases, resolution, fs, window, enbw = null, kind = 'Espectro') {
+    Object.assign(this, { freqs, amps, phases, resolution, fs, window, kind });
+    this._enbw = enbw;
   }
-  get enbw() { return (WINDOWS[this.window] || WINDOWS.rect).enbw; }
+  get enbw() { return this._enbw ?? windowEnbw(this.window); }
   peakNear(freq, tol) {
     let best = -1, amp = 0;
     for (let i = 0; i < this.freqs.length; i++) {

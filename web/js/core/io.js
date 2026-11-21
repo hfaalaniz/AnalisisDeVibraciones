@@ -46,6 +46,7 @@ export const defaultSimSettings = () => ({
   misalignment: 0, looseness: 0, bearing: 0, oilWhirl: 0, electrical: 0, lineHz: 50,
   bearingGeom: { balls: 9, ballD: 7.94, pitchD: 39, contactDeg: 0 },
   masses: [], seed: 12345,
+  runUp: false, rpmStart: 300, rpmEnd: 3000, criticalRpm: 1800, damping: 0.08,
 });
 
 /** Rotor virtual lineal: vibración 1X = H·U. El balanceo debe "descubrir" H con las corridas de prueba. */
@@ -74,7 +75,35 @@ export class RotorSimulator {
     const u1 = 1 - this.rng(), u2 = this.rng();
     return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   }
+  /** Respuesta de velocidad de un rotor con desbalance (1 grado de libertad) y su retraso de fase. */
+  resonance(hz) {
+    const wc = Math.max(this.s.criticalRpm ?? 1800, 1) / 60, r = hz / wc, z = Math.max(this.s.damping ?? 0.08, 1e-3);
+    return { gain: hz * r * r / Math.sqrt((1 - r * r) ** 2 + (2 * z * r) ** 2), lag: Math.atan2(2 * z * r, 1 - r * r) * 180 / Math.PI };
+  }
+  /** Arranque o parada: rampa lineal de velocidad que pasa por la velocidad crítica. */
+  acquireRunUp() {
+    const s = this.s, n = s.samples, fs = s.fs, T = n / fs;
+    const fa = Math.max(s.rpmStart, 1) / 60, fb = Math.max(s.rpmEnd, 1) / 60;
+    const v1x = this.expected1X(), ref = this.resonance(s.rpm / 60);
+    const theta = new Float64Array(n);
+    for (let i = 0; i < n; i++) { const t = i / fs; theta[i] = 2 * Math.PI * (fa * t + (fb - fa) * t * t / (2 * T)); }
+    const channels = v1x.map((v, c) => {
+      const x = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        const hz = fa + (fb - fa) * i / fs / T, { gain, lag } = this.resonance(hz);
+        const amp = v.mag * gain / Math.max(ref.gain, 1e-12), ph = (v.ang + lag - ref.lag) * Math.PI / 180;
+        let y = amp * Math.cos(theta[i] - ph);
+        if (s.misalignment > 0) y += s.misalignment * (hz / (s.rpm / 60)) * Math.cos(2 * theta[i] - 1.1);
+        x[i] = y + s.noise * this.gauss();
+      }
+      return { name: `Sensor ${c + 1}`, unit: 'mms', data: x };
+    });
+    const tach = new Float64Array(n);
+    for (let i = 0; i < n; i++) { const rev = theta[i] / (2 * Math.PI); tach[i] = rev - Math.floor(rev) < 0.03 ? 5 : 0; }
+    return new Recording(fs, channels, tach, (s.rpmStart + s.rpmEnd) / 2, s.rpmEnd >= s.rpmStart ? 'Simulador (arranque)' : 'Simulador (parada)');
+  }
   acquire() {
+    if (this.s.runUp) return this.acquireRunUp();
     const s = this.s, n = s.samples, fs = s.fs, f1 = s.rpm / 60;
     const v1x = this.expected1X();
     const startAngle = this.rng() * 2 * Math.PI;

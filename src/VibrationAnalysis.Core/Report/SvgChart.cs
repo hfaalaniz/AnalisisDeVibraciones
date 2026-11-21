@@ -69,7 +69,7 @@ public static class SvgChart
             sb.Append($"<line x1=\"{N(px)}\" y1=\"{top}\" x2=\"{N(px)}\" y2=\"{top + ph}\" stroke=\"#e3e9eb\"/>");
             sb.Append($"<text x=\"{N(px)}\" y=\"{top + ph + 14}\" text-anchor=\"middle\" fill=\"#5f6b70\">{E(c.XFormat != null ? c.XFormat(v) : Fmt(v))}</text>");
         }
-        foreach (var v in Ticks(yMin, yMax, Math.Max(2, ph / 45)))
+        foreach (var v in Ticks(yMin, yMax, Math.Max(3, ph / 45)))
         {
             double py = Y(v);
             sb.Append($"<line x1=\"{left}\" y1=\"{N(py)}\" x2=\"{left + pw}\" y2=\"{N(py)}\" stroke=\"#e3e9eb\"/>");
