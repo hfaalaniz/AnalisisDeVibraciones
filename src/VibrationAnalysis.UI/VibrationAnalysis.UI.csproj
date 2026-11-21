@@ -22,6 +22,10 @@
     <ProjectReference Include="..\VibrationAnalysis.Core\VibrationAnalysis.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Manual de usuario: se copia junto al ejecutable (y al instalador) para abrirlo sin internet -->
+    <None Include="..\..\docs\MANUAL.md" Link="MANUAL.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
   </ItemGroup>
 </Project>

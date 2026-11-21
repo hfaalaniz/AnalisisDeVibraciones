@@ -756,6 +756,29 @@ t.Run("Gráfico SVG: ejes, reducción de puntos, límites y escape", () =>
     T.True(System.Text.RegularExpressions.Regex.Matches(two, "clipPath id=\"(clip\\d+)\"").Select(mm => mm.Groups[1].Value).Distinct().Count() == 2, "recortes con id único");
     T.True(SvgChart.Render(new SvgChartSpec { Title = "vacío" }).Contains("</svg>"), "sin datos");
 });
+t.Run("Manual: Markdown a HTML (títulos, anclas, listas, tablas, enlaces)", () =>
+{
+    var md = "# Título\n\n## 3. Pestaña 1 · Máquina\n\nTexto con **negrita**, `código` y [enlace](../firmware/README.md).\n\n" +
+             "1. Uno\n   - sub a\n   - sub b\n2. Dos\n\n| A | B |\n|---|:---:|\n| x <y> | ✓ |\n\n> Nota\n\n```\na < b\n```\n";
+    var h = MarkdownHtml.ToHtml(md, "https://github.com/o/r/blob/main/docs");
+    T.True(h.Contains("<h2 id=\"3-pestaña-1--máquina\">"), "ancla al estilo GitHub");
+    T.True(h.Contains("<b>negrita</b>") && h.Contains("<code>código</code>"), "negrita y código");
+    T.True(h.Contains("href=\"https://github.com/o/r/blob/main/firmware/README.md\""), "enlace relativo resuelto");
+    T.True(h.Contains("<ol><li>Uno<ul><li>sub a</li><li>sub b</li></ul>") && h.Contains("<li>Dos</li></ol>"), "listas anidadas: " + h);
+    T.True(h.Contains("<td>x &lt;y&gt;</td>") && h.Contains("text-align:center"), "tabla con escape y alineación");
+    T.True(h.Contains("<blockquote>") && h.Contains("a &lt; b"), "cita y código");
+    var dir = new DirectoryInfo(AppContext.BaseDirectory);
+    while (dir != null && !File.Exists(Path.Combine(dir.FullName, "docs", "MANUAL.md"))) dir = dir.Parent;
+    if (dir != null)
+    {
+        var page = MarkdownHtml.ToPage(File.ReadAllText(Path.Combine(dir.FullName, "docs", "MANUAL.md")), "Manual");
+        int n = 0;
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(page, "href=\"#([^\"]+)\""))
+        { T.True(page.Contains($"id=\"{m.Groups[1].Value}\""), "índice del manual → " + m.Groups[1].Value); n++; }
+        T.True(n >= 16, "índice del manual completo");
+    }
+});
+
 t.Run("Informe: estado general, secciones, recomendaciones y escape", () =>
 {
     var machine = new Machine { Name = "VT-01 <script>", Rpm = 1500, Bearing = new BearingGeometry(9, 7.94, 39, 0) };
