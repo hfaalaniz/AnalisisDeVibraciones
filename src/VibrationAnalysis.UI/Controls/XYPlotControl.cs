@@ -55,6 +55,8 @@ namespace VibrationAnalysis.UI
             Font = new Font("Segoe UI", 8.5f);
         }
 
+        public double ViewMin => viewMin;
+        public double ViewMax => viewMax;
         public double[] XValues => xs;
         public double[] YValues => ys;
 
