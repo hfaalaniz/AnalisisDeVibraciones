@@ -27,6 +27,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+# Huella de este script al arrancar: si al cambiar de rama o actualizar cambia, se vuelve a lanzar la versión nueva
+$huellaInicial = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
 
 # ---------- utilidades ----------
 function Titulo([string]$t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
@@ -112,6 +114,14 @@ if ($Reiniciar) {
 }
 Ok "Rama: $Rama"
 git log --oneline -5
+
+# PowerShell ya cargó el script viejo: si la rama trae otra versión de probar.ps1, se continúa con la nueva
+if ((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash -ne $huellaInicial -and -not $env:VA_PROBAR_RELANZADO) {
+    Aviso "probar.ps1 cambió con la actualización: se vuelve a ejecutar la versión nueva."
+    $env:VA_PROBAR_RELANZADO = '1'
+    try { & $PSCommandPath @PSBoundParameters } finally { Remove-Item Env:VA_PROBAR_RELANZADO -ErrorAction SilentlyContinue }
+    exit $LASTEXITCODE
+}
 
 # ---------- pruebas ----------
 $fallos = @()
