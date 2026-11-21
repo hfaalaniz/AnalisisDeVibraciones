@@ -756,6 +756,29 @@ t.Run("Gráfico SVG: ejes, reducción de puntos, límites y escape", () =>
     T.True(System.Text.RegularExpressions.Regex.Matches(two, "clipPath id=\"(clip\\d+)\"").Select(mm => mm.Groups[1].Value).Distinct().Count() == 2, "recortes con id único");
     T.True(SvgChart.Render(new SvgChartSpec { Title = "vacío" }).Contains("</svg>"), "sin datos");
 });
+t.Run("Manual: Markdown a HTML (títulos, anclas, listas, tablas, enlaces)", () =>
+{
+    var md = "# Título\n\n## 3. Pestaña 1 · Máquina\n\nTexto con **negrita**, `código` y [enlace](../firmware/README.md).\n\n" +
+             "1. Uno\n   - sub a\n   - sub b\n2. Dos\n\n| A | B |\n|---|:---:|\n| x <y> | ✓ |\n\n> Nota\n\n```\na < b\n```\n";
+    var h = MarkdownHtml.ToHtml(md, "https://github.com/o/r/blob/main/docs");
+    T.True(h.Contains("<h2 id=\"3-pestaña-1--máquina\">"), "ancla al estilo GitHub");
+    T.True(h.Contains("<b>negrita</b>") && h.Contains("<code>código</code>"), "negrita y código");
+    T.True(h.Contains("href=\"https://github.com/o/r/blob/main/firmware/README.md\""), "enlace relativo resuelto");
+    T.True(h.Contains("<ol><li>Uno<ul><li>sub a</li><li>sub b</li></ul>") && h.Contains("<li>Dos</li></ol>"), "listas anidadas: " + h);
+    T.True(h.Contains("<td>x &lt;y&gt;</td>") && h.Contains("text-align:center"), "tabla con escape y alineación");
+    T.True(h.Contains("<blockquote>") && h.Contains("a &lt; b"), "cita y código");
+    var dir = new DirectoryInfo(AppContext.BaseDirectory);
+    while (dir != null && !File.Exists(Path.Combine(dir.FullName, "docs", "MANUAL.md"))) dir = dir.Parent;
+    if (dir != null)
+    {
+        var page = MarkdownHtml.ToPage(File.ReadAllText(Path.Combine(dir.FullName, "docs", "MANUAL.md")), "Manual");
+        int n = 0;
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(page, "href=\"#([^\"]+)\""))
+        { T.True(page.Contains($"id=\"{m.Groups[1].Value}\""), "índice del manual → " + m.Groups[1].Value); n++; }
+        T.True(n >= 16, "índice del manual completo");
+    }
+});
+
 t.Run("Informe: estado general, secciones, recomendaciones y escape", () =>
 {
     var machine = new Machine { Name = "VT-01 <script>", Rpm = 1500, Bearing = new BearingGeometry(9, 7.94, 39, 0) };
@@ -913,8 +936,87 @@ static class Vectors
         var acc = Enumerable.Range(0, 2000).Select(i => Math.Sin(2 * Math.PI * 50 * i / 2000.0) + 0.2 * Math.Sin(2 * Math.PI * 130 * i / 2000.0)).ToArray();
         var vel = SignalTools.Convert(acc, 2000, VibrationUnit.AccelerationG, VibrationUnit.VelocityMmS);
         o["integration"] = new { fs = 2000.0, acc = acc.Take(64).ToArray(), velRms = SignalTools.Statistics(vel).Rms, accFull = acc };
+        EmitAdvanced(o);
         File.WriteAllText(path, JsonSerializer.Serialize(o, new JsonSerializerOptions { WriteIndented = false }));
         Console.WriteLine($"Vectores escritos en {path}");
+    }
+
+    // Análisis avanzado, órdenes y tendencias (paridad con web/js/core/advanced.js y trend.js)
+    static void EmitAdvanced(Dictionary<string, object> o)
+    {
+        const double fs = 5120;
+        int n = 8192;
+        var x = Enumerable.Range(0, n).Select(i =>
+        {
+            double t = i / fs;
+            return Math.Sin(2 * Math.PI * 25 * t) + 0.3 * Math.Sin(2 * Math.PI * 50 * t + 0.4)
+                + 0.2 * Math.Sin(2 * Math.PI * 1800 * t) * (1 + Math.Cos(2 * Math.PI * 87 * t)) + 0.05 * Math.Sin(i * 1.37) * Math.Cos(i * 0.21);
+        }).ToArray();
+        var bp = IirFilter.Butterworth(FilterKind.BandPass, 4, fs, 500, 1500);
+        var avg = AdvancedSpectrum.Averaged(x, fs, 1024, 0.5, WindowType.Hann);
+        var peak = AdvancedSpectrum.Averaged(x, fs, 1024, 0.5, WindowType.BlackmanHarris, AveragingMode.PeakHold);
+        var psd = AdvancedSpectrum.Psd(x, fs, 1024, 0.5, WindowType.Kaiser);
+        var zoom = AdvancedSpectrum.Zoom(x, fs, 25, 20);
+        var cep = AdvancedSpectrum.Cepstrum(x, fs);
+        var env = AdvancedSpectrum.EnvelopeSpectrum(x, fs, 1500, 2100);
+        var sk = AdvancedSpectrum.SpectralKurtosis(x, fs);
+        var band = AdvancedSpectrum.AutoEnvelopeBand(x, fs, 25, 150);
+        o["advanced"] = new
+        {
+            fs,
+            filter = new { y = bp.FiltFilt(x).Take(300).ToArray(), gain1000 = bp.Gain(1000), gain300 = bp.Gain(300) },
+            avg = new { amps = avg.Amplitudes.Take(200).ToArray(), avg.Averages },
+            peak = peak.Amplitudes.Take(200).ToArray(),
+            psd = new { v = psd.Psd.Take(200).ToArray(), rms = psd.BandRms(10, 1000) },
+            zoom = new { f = zoom.Frequencies, a = zoom.Amplitudes },
+            cep = cep.Values.Take(400).ToArray(),
+            env = env.Amplitudes.Take(200).ToArray(),
+            sk = sk.Kurtosis,
+            band = new[] { band.Low, band.High },
+        };
+
+        // Arranque sintético: rampa de 600 a 3000 rpm con resonancia a 1800 rpm
+        const double fs2 = 4096; int n2 = 65536; double T = n2 / fs2, fa = 10, fb = 50;
+        var th = Enumerable.Range(0, n2).Select(i => { double t = i / fs2; return 2 * Math.PI * (fa * t + (fb - fa) * t * t / (2 * T)); }).ToArray();
+        var y = new double[n2];
+        for (int i = 0; i < n2; i++)
+        {
+            double hz = fa + (fb - fa) * i / fs2 / T, r = hz / 30, z = 0.08;
+            double g = r * r / Math.Sqrt(Math.Pow(1 - r * r, 2) + Math.Pow(2 * z * r, 2)), lag = Math.Atan2(2 * z * r, 1 - r * r);
+            y[i] = g * Math.Cos(th[i] - lag) + 0.2 * Math.Cos(2 * th[i] + 0.5);
+        }
+        var pulses = new List<double>();
+        for (int k = 0; ; k++)
+        {
+            // θ(t) = 2πk  ⇒  t = (−fa + √(fa² + 2(fb−fa)k/T)) / ((fb−fa)/T)
+            double a = (fb - fa) / T, t = (-fa + Math.Sqrt(fa * fa + 2 * a * k)) / a;
+            if (t >= T) break;
+            pulses.Add(t);
+        }
+        var os = OrderTracking.OrderSpectrum(y, fs2, pulses, 10);
+        var tr = OrderTracking.Track(y, fs2, pulses, 1, 8);
+        var crit = OrderTracking.CriticalSpeeds(tr);
+        o["orders"] = new
+        {
+            fs = fs2, pulses = pulses.Count,
+            spectrum = os.Amplitudes,
+            track = tr.Points.Select(p => new[] { p.Rpm, p.Amplitude, p.PhaseLagDeg }).ToArray(),
+            critical = crit.Select(c => new[] { c.Rpm, c.PhaseShiftDeg }).ToArray(),
+        };
+
+        // Tendencias: ajuste y límites
+        var t0 = new DateTime(2026, 1, 1);
+        var ser = Enumerable.Range(0, 8).Select(i => (t0.AddDays(i * 15), 1.2 * Math.Exp(0.012 * i * 15) + 0.05 * Math.Sin(i))).ToList();
+        var fit = TrendAnalysis.Fit(ser)!;
+        var hist = new[] { 2.1, 2.3, 1.9 }.Select((v, i) => new MeasurementRecord { Timestamp = t0.AddDays(i), Features = { [FeatureKeys.AccelerationRms] = v } }).ToList();
+        var lim = TrendAnalysis.Limits(new AlarmRule(FeatureKeys.AccelerationRms, AlarmKind.Statistical, 3, 6), MachineClass.Iso10816_3_Group2Rigid, hist);
+        o["trend"] = new
+        {
+            days = ser.Select(p => (p.Item1 - t0).TotalDays).ToArray(), values = ser.Select(p => p.Item2).ToArray(),
+            slope = fit.SlopePerDay, fit.Intercept, fit.R2, fit.Exponential,
+            crossDays = (fit.Crossing(4.5)!.Value - t0).TotalDays,
+            stat = new[] { 2.1, 2.3, 1.9 }, limits = new[] { lim.Alert, lim.Danger },
+        };
     }
 }
 

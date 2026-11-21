@@ -8,6 +8,7 @@ import {
 import { RotorSimulator, defaultSimSettings, parseCsv, parseWav, writeCsv, SerialStreamParser } from '../core/io.js';
 import { buildReport } from '../core/report.js';
 import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
+import { initPro } from './pro.js';
 
 {
   const $ = (id) => document.getElementById(id);
@@ -29,7 +30,9 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
   let recording = null;
   let analysis = null;
   let session = null;
-  let report = { tech: '', company: '', notes: '' };
+  let report = { tech: '', company: '', client: '', number: '', workOrder: '', recommendations: '', notes: '', logo: '', sections: { charts: true, ind: true, trend: true, bal: true, sign: true } };
+  const recordingListeners = [], tabListeners = [];
+  let pro = null;
   const serial = { port: null, reader: null, parser: new SerialStreamParser(), running: false };
   let liveTimer = null;
 
@@ -64,6 +67,7 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
     tabs.forEach((b) => b.setAttribute('aria-selected', String(b.id === id)));
     document.querySelectorAll('section.view').forEach((s) => s.classList.toggle('on', s.getAttribute('aria-labelledby') === id));
     if (id === 'tab-informe') renderReport();
+    tabListeners.forEach((f) => f(id));
     history.replaceState(null, '', '#' + id.slice(4));
   }
   tabs.forEach((b) => b.addEventListener('click', () => showTab(b.id)));
@@ -101,6 +105,13 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
   function acquireSim() {
     if (sim.s !== simSettings) sim = new RotorSimulator(simSettings);
     setRecording(sim.acquire());
+  }
+  /** Arranque simulado (600 → 3000 rpm, crítica a 1800 rpm) para Bode, Nyquist y espectrograma. */
+  function acquireRunUp() {
+    setSource('sim');
+    const s = { ...simSettings, runUp: true, rpmStart: 600, rpmEnd: 3000, criticalRpm: 1800, fs: 2048, samples: 65536, masses: [] };
+    setRecording(new RotorSimulator(s).acquire());
+    toast('Arranque simulado de 600 a 3000 rpm (velocidad crítica en 1800 rpm).');
   }
 
   $('fileInput').addEventListener('change', async (e) => {
@@ -169,6 +180,7 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
     sel.innerHTML = r.channels.map((c, i) => `<option value="${i}">${c.name}</option>`).join('');
     if (prev && +prev < r.channels.length) sel.value = prev;
     analyze();
+    recordingListeners.forEach((f) => f(r));
   }
   ['selChannel', 'selUnit', 'selWindow', 'selFmax'].forEach((id) => $(id).addEventListener('change', analyze));
 
@@ -441,11 +453,46 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
   }
 
   // ── Informe ──
-  ['rTech', 'rCompany', 'rNotes'].forEach((id, i) => $(id).addEventListener('input', () => { report[['tech', 'company', 'notes'][i]] = $(id).value; save(); clearTimeout(renderReport.t); renderReport.t = setTimeout(renderReport, 400); }));
+  const RFIELDS = { rTech: 'tech', rCompany: 'company', rClient: 'client', rNumber: 'number', rWorkOrder: 'workOrder', rRecs: 'recommendations', rNotes: 'notes' };
+  const RSECT = { rsCharts: 'charts', rsInd: 'ind', rsTrend: 'trend', rsBal: 'bal', rsSign: 'sign' };
+  const refreshReport = () => { save(); clearTimeout(renderReport.t); renderReport.t = setTimeout(renderReport, 400); };
+  for (const [id, k] of Object.entries(RFIELDS)) $(id).addEventListener('input', () => { report[k] = $(id).value; refreshReport(); });
+  for (const [id, k] of Object.entries(RSECT)) $(id).addEventListener('change', () => { report.sections = { ...report.sections, [k]: $(id).checked }; refreshReport(); });
+  function fillReportForm() {
+    for (const [id, k] of Object.entries(RFIELDS)) $(id).value = report[k] || '';
+    for (const [id, k] of Object.entries(RSECT)) $(id).checked = report.sections?.[k] !== false;
+    $('rLogoDel').disabled = !report.logo;
+  }
+  $('rLogoBtn').addEventListener('click', () => $('rLogo').click());
+  $('rLogo').addEventListener('change', (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    if (f.size > 400000) return toast('El logo debe pesar menos de 400 kB.');
+    const rd = new FileReader(); rd.onload = () => { report.logo = rd.result; fillReportForm(); refreshReport(); }; rd.readAsDataURL(f);
+  });
+  $('rLogoDel').addEventListener('click', () => { report.logo = ''; fillReportForm(); refreshReport(); });
+  $('rSuggest').addEventListener('click', () => {
+    const recs = [...new Set((analysis?.findings || []).map((f) => f.recommendation))];
+    $('rRecs').value = report.recommendations = (recs.length ? recs : ['Continuar con el plan de monitoreo periódico.']).map((r) => '- ' + r).join('\n');
+    refreshReport();
+  });
   function reportHtml() {
-    const imgs = [];
-    try { imgs.push($('cSpec').toDataURL('image/png')); } catch { }
-    return buildReport({ machine, technician: report.tech, company: report.company, notes: report.notes, severity: analysis?.sev, findings: analysis?.findings || [], session, chartImages: imgs });
+    const sec = report.sections || {};
+    const extra = pro ? pro.reportData() : { alarms: [], indicators: null, trends: [] };
+    const d = { machine, report: { ...report, signatures: sec.sign !== false }, severity: analysis?.sev, findings: analysis?.findings || [], session: sec.bal !== false ? session : null };
+    if (sec.ind !== false) { d.alarms = extra.alarms; d.indicators = extra.indicators; }
+    if (sec.trend !== false) d.trends = extra.trends;
+    if (sec.charts !== false && recording && analysis) {
+      const ch = recording.channels[+$('selChannel').value || 0], u = analysis.unit, f1 = analysis.rpm / 60;
+      const view = convertUnits(ch.data, recording.fs, ch.unit, u, UNITS[u].order === UNITS[ch.unit].order ? 0 : 2);
+      d.spectrum = spectrum(view, recording.fs, $('selWindow').value);
+      d.spectrumUnit = `${UNITS[u].symbol} pico`;
+      d.spectrumMaxHz = Math.min(recording.fs / 2, Math.max(12.5 * f1, 200));
+      d.markers = [1, 2, 3].map((k) => ({ f: k * f1, label: `${k}X` }));
+      if (machine.bearing?.balls > 0) { const b = bearingOrders(machine.bearing); d.markers.push({ f: b.bpfo * f1, label: 'BPFO' }, { f: b.bpfi * f1, label: 'BPFI' }); }
+      const n = Math.min(view.length, Math.round(recording.fs * 6 / Math.max(f1, 1)));
+      d.waveform = { t: Array.from({ length: n }, (_, i) => i / recording.fs), y: Array.from(view.slice(0, n)), unit: UNITS[u].symbol };
+    }
+    return buildReport(d);
   }
   function renderReport() { $('reportFrame').srcdoc = reportHtml(); }
   $('btnPrint').addEventListener('click', () => { renderReport(); setTimeout(() => $('reportFrame').contentWindow.print(), 400); });
@@ -469,7 +516,7 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
       Machine: { Name: m.name, Location: m.location, RotorType: TYPE_KEYS.indexOf(m.rotorType), Material: m.material, DiameterMm: m.diameterMm, InnerDiameterMm: m.innerDiameterMm, LengthMm: m.lengthMm, MassKg: m.massKg, Rpm: m.rpm, Blades: m.blades, VerticalShaft: false, CorrectionRadiusMm: m.correctionRadiusMm, BalanceGrade: m.balanceGrade, MachineClass: CLASS_KEYS.indexOf(m.machineClass), Bearing: m.bearing?.balls > 0 ? { Balls: m.bearing.balls, BallDiameterMm: m.bearing.ballD, PitchDiameterMm: m.bearing.pitchD, ContactAngleDeg: m.bearing.contactDeg } : null, LineFrequencyHz: m.lineHz },
       Planes: session.planes, AnglesAgainstRotation: session.againstRotation, KeepTrialWeights: session.keepTrial, Tolerance: session.tolerance,
       Runs: session.runs.map((r) => ({ Name: r.name, Sensor1: P2(r.s1), Sensor2: P2(r.s2), Rpm: r.rpm, Trial: P2(r.trial), TrialPlane: r.plane, Time: r.time })),
-      Technician: report.tech, Company: report.company, Notes: report.notes,
+      Technician: report.tech, Company: report.company, Notes: report.notes, Client: report.client, ReportNumber: report.number, WorkOrder: report.workOrder, Recommendations: report.recommendations,
     };
     download(`${safe(m.name)}.vaproj`, JSON.stringify(proj, null, 2), 'application/json');
   });
@@ -481,8 +528,8 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
       const p = JSON.parse(await f.text()), M = p.Machine || {};
       machine = { ...defaultMachine(), name: M.Name, location: M.Location || '', rotorType: TYPE_KEYS[M.RotorType] || 'solid', material: M.Material || 'Acero', diameterMm: M.DiameterMm, innerDiameterMm: M.InnerDiameterMm || 0, lengthMm: M.LengthMm, massKg: M.MassKg || 0, rpm: M.Rpm, blades: M.Blades || 0, correctionRadiusMm: M.CorrectionRadiusMm, balanceGrade: M.BalanceGrade, machineClass: CLASS_KEYS[M.MachineClass] || 'g2r', lineHz: M.LineFrequencyHz || 50, bearing: M.Bearing ? { balls: M.Bearing.Balls, ballD: M.Bearing.BallDiameterMm, pitchD: M.Bearing.PitchDiameterMm, contactDeg: M.Bearing.ContactAngleDeg } : { balls: 0, ballD: 0, pitchD: 0, contactDeg: 0 } };
       session = BalancingSession.fromRuns({ planes: p.Planes || 1, againstRotation: p.AnglesAgainstRotation !== false, keepTrial: !!p.KeepTrialWeights, tolerance: p.Tolerance || 1, runs: (p.Runs || []).map((r) => ({ name: r.Name, s1: P1(r.Sensor1), s2: P1(r.Sensor2), rpm: r.Rpm, trial: P1(r.Trial), plane: r.TrialPlane, time: r.Time })) });
-      report = { tech: p.Technician || '', company: p.Company || '', notes: p.Notes || '' };
-      $('rTech').value = report.tech; $('rCompany').value = report.company; $('rNotes').value = report.notes;
+      report = { ...report, tech: p.Technician || '', company: p.Company || '', notes: p.Notes || '', client: p.Client || '', number: p.ReportNumber || '', workOrder: p.WorkOrder || '', recommendations: p.Recommendations || '' };
+      fillReportForm();
       simSettings.rpm = machine.rpm; simSettings.sensors = session.planes; simSettings.masses = [];
       renderMachine(); renderBalance(); renderReport(); save();
       toast(`Proyecto «${machine.name}» importado con ${session.runs.length} corrida(s).`);
@@ -493,7 +540,12 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
   load();
   buildMachineForm();
   buildSimControls();
-  $('rTech').value = report.tech; $('rCompany').value = report.company; $('rNotes').value = report.notes;
+  fillReportForm();
+  pro = initPro({
+    fx, toast, download, safe, acquireRunUp,
+    recording: () => recording, machine: () => machine, channel: () => +$('selChannel').value || 0,
+    onRecording: (f) => recordingListeners.push(f), onTab: (f) => tabListeners.push(f),
+  });
   if (!session) {
     $('balPlanes').value = String(recommendedPlanes(machine).planes);
     session = new BalancingSession(+$('balPlanes').value, { tolerance: 1 });
@@ -503,6 +555,6 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
   renderMachine();
   setSource('sim');
   acquireSim();
-  const start = { analisis: 'tab-analisis', balanceo: 'tab-balanceo', maquina: 'tab-maquina', informe: 'tab-informe' }[location.hash.slice(1)];
+  const start = { analisis: 'tab-analisis', avanzado: 'tab-avanzado', ordenes: 'tab-ordenes', tendencias: 'tab-tendencias', balanceo: 'tab-balanceo', maquina: 'tab-maquina', informe: 'tab-informe' }[location.hash.slice(1)];
   if (start) showTab(start);
 }

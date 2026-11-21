@@ -118,11 +118,15 @@ legend{font-weight:600;padding:0 6px}
 .kv dt{color:var(--mute)}
 .kv dd{margin:0;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
 .report{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:20px;padding-block:20px}
+.pro{display:grid;grid-template-columns:320px minmax(0,1fr);gap:20px;padding-block:20px}
+.pro .fields{margin-top:8px}
+.lvl1{color:var(--zC);font-weight:600}.lvl2{color:var(--zD);font-weight:700}.lvl0{color:var(--zA)}
+tr.sel td{background:var(--mist)}
 .report iframe{width:100%;height:640px;border:1px solid var(--line);border-radius:12px;background:#fff}
 footer{border-top:1px solid var(--line);padding-block:18px;color:var(--mute);font-size:14px}
 footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
-@media(max-width:1000px){.grid,.bal,.mach,.report{grid-template-columns:minmax(0,1fr)}.reading .wrap{grid-template-columns:minmax(0,1fr)}}
-@media(max-width:600px){.polars,.fields,.fields.three{grid-template-columns:minmax(0,1fr)}nav.tabs{margin-left:0;width:100%}nav.tabs button{flex:1;padding:8px 6px;font-size:14px}.machine-chip{display:none}table{font-size:13px}th,td{padding:6px 4px}.fig{min-height:240px}.fig.tall{min-height:280px}.report iframe{height:480px}}
+@media(max-width:1000px){.grid,.bal,.mach,.report,.pro{grid-template-columns:minmax(0,1fr)}.reading .wrap{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.polars,.fields,.fields.three{grid-template-columns:minmax(0,1fr)}nav.tabs{margin-left:0;width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}nav.tabs button{flex:none;padding:8px 12px;font-size:14px}.machine-chip{display:none}table{font-size:13px}th,td{padding:6px 4px}.fig{min-height:240px}.fig.tall{min-height:280px}.report iframe{height:480px}}
 @media print{header.top,footer,nav{display:none}}
 </style>
 </head>
@@ -133,6 +137,9 @@ footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
     <span class="machine-chip" id="machineChip"></span>
     <nav class="tabs" role="tablist" aria-label="Secciones">
       <button role="tab" id="tab-analisis" aria-controls="v-analisis" aria-selected="true">Análisis</button>
+      <button role="tab" id="tab-avanzado" aria-controls="v-avanzado" aria-selected="false">Avanzado</button>
+      <button role="tab" id="tab-ordenes" aria-controls="v-ordenes" aria-selected="false">Órdenes</button>
+      <button role="tab" id="tab-tendencias" aria-controls="v-tendencias" aria-selected="false">Tendencias</button>
       <button role="tab" id="tab-balanceo" aria-controls="v-balanceo" aria-selected="false">Balanceo</button>
       <button role="tab" id="tab-maquina" aria-controls="v-maquina" aria-selected="false">Máquina</button>
       <button role="tab" id="tab-informe" aria-controls="v-informe" aria-selected="false">Informe</button>
@@ -196,6 +203,123 @@ footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
         <p class="note">Orientativo: confirmar midiendo en horizontal, vertical y axial, y con la fase.</p>
       </div>
     </aside>
+  </div>
+</section>
+
+<section class="view" id="v-avanzado" role="tabpanel" aria-labelledby="tab-avanzado">
+  <div class="wrap pro">
+    <aside>
+      <div class="panel">
+        <h3>Análisis avanzado</h3>
+        <label class="f">Análisis<select id="aMode">
+          <option value="avg">Espectro promediado</option><option value="psd">Densidad espectral (PSD)</option><option value="zoom">Zoom FFT</option>
+          <option value="env">Envolvente (demodulación)</option><option value="cep">Cepstrum</option><option value="sk">Curtosis espectral</option>
+        </select></label>
+        <div class="fields">
+          <label class="f">Magnitud<select id="aUnit"><option value="g">Aceleración (g)</option><option value="mms">Velocidad (mm/s)</option><option value="um">Desplazamiento (µm)</option></select></label>
+          <label class="f">Ventana<select id="aWin"><option value="hann">Hanning</option><option value="flattop">Flat-top</option><option value="hamming">Hamming</option><option value="blackmanharris">Blackman-Harris</option><option value="kaiser">Kaiser</option><option value="rect">Rectangular</option></select></label>
+        </div>
+        <div class="fields" data-a="avg psd">
+          <label class="f">Bloque<select id="aBlock"><option>512</option><option>1024</option><option selected>2048</option><option>4096</option><option>8192</option><option>16384</option></select></label>
+          <label class="f">Solape (%)<input id="aOverlap" type="number" min="0" max="90" step="5" value="50"></label>
+          <label class="f" data-a="avg">Promedio<select id="aAvg"><option value="linear">Lineal</option><option value="exponential">Exponencial</option><option value="peak">Retención de picos</option></select></label>
+        </div>
+        <div class="fields" data-a="env">
+          <label class="f">Banda desde (Hz)<input id="aLow" type="number" min="1" step="10" value="1000"></label>
+          <label class="f">hasta (Hz)<input id="aHigh" type="number" min="2" step="10" value="2400"></label>
+        </div>
+        <div class="row" data-a="env"><button class="btn" id="aSuggest">Sugerir banda (curtosis)</button></div>
+        <div class="fields" data-a="zoom">
+          <label class="f">Centro (Hz)<input id="aCenter" type="number" min="0.1" step="0.1" value="25"></label>
+          <label class="f">Ancho (Hz)<input id="aSpan" type="number" min="0.5" step="0.5" value="20"></label>
+        </div>
+        <div class="row" data-a="zoom"><button class="btn" id="aCenter1X">Centrar en 1X</button></div>
+        <div class="fields">
+          <label class="f">Hasta (Hz, 0 = auto)<input id="aMax" type="number" min="0" step="10" value="0"></label>
+          <label class="check" style="margin-top:22px"><input type="checkbox" id="aLog"> Escala log</label>
+        </div>
+        <div class="row"><button class="btn go" id="aRun">Calcular</button><button class="btn" id="aCsv">Exportar CSV</button></div>
+        <p class="note">La envolvente y la curtosis espectral usan aceleración. La banda de demodulación debe contener una resonancia excitada por los impactos.</p>
+      </div>
+    </aside>
+    <div>
+      <div class="panel">
+        <div class="charthead"><h2 id="aTitle">Análisis avanzado</h2><p id="aSub"></p></div>
+        <div class="fig tall"><canvas id="cAdv" role="img" aria-label="Resultado del análisis avanzado"></canvas></div>
+      </div>
+      <div class="panel"><h3>Picos principales</h3><div class="scroll"><table id="aPeaks"></table></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="v-ordenes" role="tabpanel" aria-labelledby="tab-ordenes">
+  <div class="wrap pro">
+    <aside>
+      <div class="panel">
+        <h3>Órdenes y transitorios</h3>
+        <label class="f">Análisis<select id="oMode">
+          <option value="orders">Espectro de órdenes</option><option value="bode">Bode (seguimiento de orden)</option><option value="nyquist">Nyquist (polar)</option>
+          <option value="sgram">Espectrograma</option><option value="orbit">Órbita (X-Y)</option>
+        </select></label>
+        <label class="f" style="margin-top:8px">Magnitud<select id="oUnit"><option value="mms">Velocidad (mm/s)</option><option value="g">Aceleración (g)</option><option value="um">Desplazamiento (µm)</option></select></label>
+        <div class="fields" data-o="bode nyquist">
+          <label class="f">Orden<input id="oOrder" type="number" min="0.5" max="20" step="0.5" value="1"></label>
+          <label class="f">Vueltas por bloque<input id="oRevs" type="number" min="1" max="64" step="1" value="8"></label>
+        </div>
+        <div class="fields" data-o="orders"><label class="f">Máx. orden<input id="oMaxOrder" type="number" min="2" max="100" step="1" value="20"></label></div>
+        <div class="fields" data-o="sgram">
+          <label class="f">Bloque<select id="oBlock"><option>512</option><option>1024</option><option selected>2048</option><option>4096</option></select></label>
+          <label class="f">Hasta (Hz, 0 = auto)<input id="oMax" type="number" min="0" step="10" value="0"></label>
+        </div>
+        <label class="check" data-o="orbit" style="margin-top:8px"><input type="checkbox" id="oFilter" checked> Filtrar 1X</label>
+        <div class="row"><button class="btn go" id="oRun">Calcular</button><button class="btn" id="oRunUp">Simular arranque</button></div>
+        <p class="note">Necesita tacómetro. «Simular arranque» genera una rampa de 600 a 3000 rpm que pasa por una velocidad crítica en 1800 rpm. La órbita usa los dos canales (montados a 90°).</p>
+      </div>
+      <div class="panel"><h3>Resultados</h3><div id="oResults" class="muted">—</div></div>
+    </aside>
+    <div>
+      <div class="panel">
+        <div class="charthead"><h2 id="oTitle">Órdenes</h2><p id="oSub"></p></div>
+        <div class="fig tall"><canvas id="cOrd" role="img" aria-label="Resultado del análisis de órdenes"></canvas><canvas id="cOrdHeat" role="img" aria-label="Espectrograma" hidden></canvas></div>
+      </div>
+      <div class="panel" id="oPhaseBox" hidden>
+        <div class="charthead"><h2>Fase (retraso)</h2></div>
+        <div class="fig short"><canvas id="cOrdPh" role="img" aria-label="Fase del orden seguido"></canvas></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="v-tendencias" role="tabpanel" aria-labelledby="tab-tendencias">
+  <div class="wrap pro">
+    <aside>
+      <div class="panel">
+        <h3>Punto de medición</h3>
+        <label class="f">Punto<select id="tPoint"></select></label>
+        <div class="row"><button class="btn" id="tAddPoint">+ Punto</button><button class="btn" id="tRenPoint">Renombrar</button><button class="btn" id="tDelPoint">Eliminar</button></div>
+        <div class="fields">
+          <label class="f">Canal<select id="tChannel"></select></label>
+          <label class="f">Temperatura (°C)<input id="tTemp" type="number" step="0.1" placeholder="opcional"></label>
+        </div>
+        <div class="row"><button class="btn go" id="tSave">Guardar medición actual</button></div>
+      </div>
+      <div class="panel">
+        <h3>Gráfico</h3>
+        <label class="f">Indicador<select id="tFeature"></select></label>
+        <div class="row"><button class="btn" id="tBaseline">Marcar línea base</button><button class="btn" id="tDemo">Demo (12 meses)</button></div>
+        <div class="row"><button class="btn" id="tCsv">Exportar CSV</button><button class="btn" id="tExport">Exportar base</button><button class="btn" id="tImport">Importar base</button><input type="file" id="tFile" accept=".json" hidden></div>
+        <p class="note">Las mediciones se guardan en este navegador. La línea base son las mediciones elegidas (o las 3 primeras) y define los límites relativos y estadísticos.</p>
+      </div>
+    </aside>
+    <div>
+      <div class="panel">
+        <div class="charthead"><h2 id="tTitle">Tendencia</h2><p id="tSub"></p></div>
+        <div class="fig"><canvas id="cTrend" role="img" aria-label="Tendencia del indicador"></canvas></div>
+      </div>
+      <div class="panel"><h3>Alarmas de la última medición</h3><div class="scroll"><table id="tAlarms"></table></div></div>
+      <div class="panel"><h3>Mediciones</h3><p class="muted">Clic en una fila para elegirla (línea base o eliminar).</p><div class="scroll"><table id="tRecords"></table></div>
+        <div class="row"><button class="btn" id="tDelRec">Eliminar medición</button></div></div>
+    </div>
   </div>
 </section>
 
@@ -300,9 +424,24 @@ footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
     <div>
       <div class="panel">
         <h3>Datos del informe</h3>
-        <label class="f">Técnico<input id="rTech"></label>
-        <label class="f" style="margin-top:10px">Empresa / cliente<input id="rCompany"></label>
-        <label class="f" style="margin-top:10px">Observaciones<textarea id="rNotes" rows="5"></textarea></label>
+        <div class="fields">
+          <label class="f">Técnico<input id="rTech"></label>
+          <label class="f">Empresa<input id="rCompany"></label>
+          <label class="f">Cliente<input id="rClient"></label>
+          <label class="f">Informe N.º<input id="rNumber" placeholder="VA-2026-001"></label>
+          <label class="f">Orden de trabajo<input id="rWorkOrder"></label>
+          <label class="f">Logo (PNG/JPG)<span class="row" style="margin:0"><button class="btn" id="rLogoBtn" type="button">Elegir…</button><button class="btn" id="rLogoDel" type="button">Quitar</button></span><input type="file" id="rLogo" accept="image/png,image/jpeg" hidden></label>
+        </div>
+        <label class="f" style="margin-top:10px">Recomendaciones (una por línea; vacío = automáticas)<textarea id="rRecs" rows="4"></textarea></label>
+        <div class="row" style="margin-top:6px"><button class="btn" id="rSuggest" type="button">Sugerir desde el diagnóstico</button></div>
+        <label class="f" style="margin-top:10px">Observaciones<textarea id="rNotes" rows="4"></textarea></label>
+        <fieldset style="margin-top:12px"><legend>Secciones</legend>
+          <label class="check"><input type="checkbox" id="rsCharts" checked> Gráficos (espectro y forma de onda)</label>
+          <label class="check"><input type="checkbox" id="rsInd" checked> Indicadores y alarmas</label>
+          <label class="check"><input type="checkbox" id="rsTrend" checked> Tendencia del punto</label>
+          <label class="check"><input type="checkbox" id="rsBal" checked> Balanceo</label>
+          <label class="check"><input type="checkbox" id="rsSign" checked> Firmas</label>
+        </fieldset>
         <div class="row">
           <button class="btn primary" id="btnPrint">Imprimir / PDF</button>
           <button class="btn" id="btnHtml">Descargar HTML</button>
@@ -324,7 +463,7 @@ footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
 </section>
 </main>
 
-<footer><div class="wrap"><span>© 2025 Fabian Alaniz · ElectroNet · +54 9 351 284-8802 · <a href="https://www.developers-soft.com/" target="_blank" rel="noopener">www.developers-soft.com</a></span><span><a href="../">Inicio</a> · <a href="../#descarga">App para Windows</a> · <a href="../#sensor">Sensor USB</a></span></div></footer>
+<footer><div class="wrap"><span>© 2025 Fabian Alaniz · ElectroNet · +54 9 351 284-8802 · <a href="https://www.developers-soft.com/" target="_blank" rel="noopener">www.developers-soft.com</a></span><span><a href="https://github.com/hfaalaniz/AnalisisDeVibraciones/blob/main/docs/MANUAL.md" target="_blank" rel="noopener">Manual</a> · <a href="../">Inicio</a> · <a href="../#descarga">App para Windows</a> · <a href="../#sensor">Sensor USB</a></span></div></footer>
 <div class="toast" id="toast" role="status" hidden></div>
 <script type="module" src="../js/ui/app.js"></script>
 </body>

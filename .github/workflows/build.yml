@@ -28,6 +28,11 @@ jobs:
         run: dotnet run --project tests/VibrationAnalysis.Core.Tests -c Release --no-build
       - name: Publicar ejecutable (win-x64, un solo archivo)
         run: dotnet publish src/VibrationAnalysis.UI/VibrationAnalysis.UI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/AnalisisVibraciones
+      - name: Verificar el manual junto al ejecutable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path publish/AnalisisVibraciones/MANUAL.md)) { throw "Falta MANUAL.md en la publicación" }
+          Get-ChildItem publish/AnalisisVibraciones | Format-Table Name, Length
       - name: Versión
         id: ver
         shell: pwsh
