@@ -169,3 +169,127 @@ export class PolarChart extends Chart {
     }
   }
 }
+
+/**
+ * Gráfico XY genérico: varias series, escala logarítmica opcional, marcas verticales, líneas horizontales y puntos.
+ * data: { series: [{ x, y, color?, points?, dash?, label? }], xLabel, yLabel, xMin, xMax, yMin, yMax, logY, equal, markers: [{ x, label }], hlines: [{ y, label, color }], xFormat, empty }
+ */
+export class XYChart extends Chart {
+  set(data) { this.data = data; this.draw(); }
+  draw() {
+    const { g, W, H } = setup(this.c);
+    const d = this.data, col = this.colors();
+    const L = 58, R = 14, T = 24, B = 34, w = W - L - R, h = H - T - B;
+    if (w < 40 || h < 40) return;
+    g.font = '13px Inter, system-ui, sans-serif';
+    const series = (d?.series || []).filter((s) => s.x?.length);
+    if (!series.length) { g.fillStyle = col.mute; g.fillText(d?.empty || 'Sin datos.', L, T + h / 2); return; }
+    const tf = d.logY ? (v) => (v > 0 ? Math.log10(v) : NaN) : (v) => v;
+    let x0 = d.xMin ?? Infinity, x1 = d.xMax ?? -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const s of series) for (let i = 0; i < s.x.length; i++) {
+      if (d.xMin == null) x0 = Math.min(x0, s.x[i]);
+      if (d.xMax == null) x1 = Math.max(x1, s.x[i]);
+    }
+    for (const s of series) for (let i = 0; i < s.x.length; i++) {
+      if (s.x[i] < x0 || s.x[i] > x1) continue;
+      const v = tf(s.y[i]); if (Number.isFinite(v)) { y0 = Math.min(y0, v); y1 = Math.max(y1, v); }
+    }
+    for (const l of d.hlines || []) { const v = tf(l.y); if (Number.isFinite(v)) { y0 = Math.min(y0, v); y1 = Math.max(y1, v); } }
+    if (!(y1 >= y0)) { y0 = 0; y1 = 1; }
+    if (d.yMin != null) y0 = tf(d.yMin); else if (!d.logY && y0 > 0 && !d.equal) y0 = 0;
+    if (d.yMax != null) y1 = tf(d.yMax);
+    if (d.logY) { y0 = Math.max(y0, y1 - 8); }
+    let sp = y1 - y0 || Math.abs(y1) || 1; y1 += sp * 0.06; if (d.equal || d.yMin == null && y0 < 0) y0 -= sp * 0.06;
+    if (x1 <= x0) x1 = x0 + 1;
+    if (d.equal) { // misma escala en X e Y (órbitas, Nyquist)
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, ppu = Math.min(w / (x1 - x0), h / (y1 - y0));
+      x0 = cx - w / ppu / 2; x1 = cx + w / ppu / 2; y0 = cy - h / ppu / 2; y1 = cy + h / ppu / 2;
+    }
+    const X = (v) => L + (v - x0) / (x1 - x0) * w, Y = (v) => T + h - (tf(v) - y0) / (y1 - y0) * h;
+    g.strokeStyle = col.grid; g.lineWidth = 1; g.fillStyle = col.mute;
+    // Eje Y
+    g.textAlign = 'right'; g.textBaseline = 'middle';
+    if (d.logY) {
+      for (let e = Math.ceil(y0); e <= y1; e++) { const py = T + h - (e - y0) / (y1 - y0) * h; g.beginPath(); g.moveTo(L, py); g.lineTo(L + w, py); g.stroke(); g.fillText(`1e${e}`, L - 6, py); }
+    } else {
+      const st = nice((y1 - y0) / 5);
+      for (let v = Math.ceil(y0 / st) * st; v <= y1 + 1e-12; v += st) { const py = T + h - (v - y0) / (y1 - y0) * h; g.beginPath(); g.moveTo(L, py); g.lineTo(L + w, py); g.stroke(); g.fillText(fmt(Math.abs(v) < st * 1e-9 ? 0 : v), L - 6, py); }
+    }
+    // Eje X
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    const sx = nice((x1 - x0) / (W < 520 ? 4 : 8));
+    for (let v = Math.ceil(x0 / sx) * sx; v <= x1 + 1e-12; v += sx) {
+      const px = X(v); g.beginPath(); g.moveTo(px, T); g.lineTo(px, T + h); g.stroke();
+      g.fillText(d.xFormat ? d.xFormat(v) : fmt(Math.abs(v) < sx * 1e-9 ? 0 : v), px, T + h + 6);
+    }
+    if (d.xLabel) { g.textAlign = 'right'; g.fillText(d.xLabel, L + w, T + h + 20); }
+    if (d.yLabel) { g.textAlign = 'left'; g.fillText(d.yLabel, 4, 4); }
+    g.save(); g.beginPath(); g.rect(L, T, w, h); g.clip();
+    for (const m of d.markers || []) {
+      if (m.x < x0 || m.x > x1) continue;
+      g.strokeStyle = col.warn; g.fillStyle = col.warn; g.setLineDash([2, 3]);
+      g.beginPath(); g.moveTo(X(m.x), T); g.lineTo(X(m.x), T + h); g.stroke(); g.setLineDash([]);
+      g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText(m.label, X(m.x) + 3, T + 2);
+    }
+    for (const l of d.hlines || []) {
+      g.strokeStyle = l.color || col.warn; g.fillStyle = g.strokeStyle; g.setLineDash([6, 4]); g.lineWidth = 1.3;
+      g.beginPath(); g.moveTo(L, Y(l.y)); g.lineTo(L + w, Y(l.y)); g.stroke(); g.setLineDash([]);
+      g.textAlign = 'right'; g.textBaseline = 'bottom'; g.fillText(l.label || '', L + w - 4, Y(l.y) - 2);
+    }
+    series.forEach((s, k) => {
+      const c = s.color || [col.accent, col.alt, col.warn, col.ink][k % 4];
+      g.strokeStyle = c; g.fillStyle = c; g.lineWidth = 1.5; g.setLineDash(s.dash ? [6, 4] : []);
+      const n = s.x.length, stride = s.points ? 1 : Math.max(1, Math.floor(n / (w * 3)));
+      if (!s.points || s.line) {
+        g.beginPath(); let first = true;
+        for (let i = 0; i < n; i += stride) {
+          const yy = Y(s.y[i]); if (!Number.isFinite(yy)) { first = true; continue; }
+          first ? g.moveTo(X(s.x[i]), yy) : g.lineTo(X(s.x[i]), yy); first = false;
+        }
+        g.stroke();
+      }
+      g.setLineDash([]);
+      if (s.points) for (let i = 0; i < n; i++) { const yy = Y(s.y[i]); if (Number.isFinite(yy)) { g.beginPath(); g.arc(X(s.x[i]), yy, 3, 0, 7); g.fill(); } }
+    });
+    g.restore();
+    const labeled = series.filter((s) => s.label);
+    if (labeled.length > 1 || labeled.some((s) => s.points)) {
+      let lx = L + 8; g.textAlign = 'left'; g.textBaseline = 'middle';
+      labeled.forEach((s, k) => {
+        const c = s.color || [col.accent, col.alt, col.warn, col.ink][series.indexOf(s) % 4];
+        g.fillStyle = c; g.fillRect(lx, T + 8, 12, 3); g.fillStyle = col.ink; g.fillText(s.label, lx + 16, T + 9); lx += 28 + g.measureText(s.label).width;
+      });
+    }
+  }
+}
+
+/** Mapa de color (espectrograma): amps[fila tiempo][columna frecuencia]. */
+export class HeatChart extends Chart {
+  set(data) { this.data = data; this.draw(); }
+  draw() {
+    const { g, W, H } = setup(this.c);
+    const d = this.data, col = this.colors();
+    const L = 58, R = 14, T = 24, B = 34, w = W - L - R, h = H - T - B;
+    if (w < 40 || h < 40) return;
+    g.font = '13px Inter, system-ui, sans-serif';
+    if (!d?.amps?.length) { g.fillStyle = col.mute; g.fillText(d?.empty || 'Sin datos.', L, T + h / 2); return; }
+    const rows = d.amps.length, cols = d.freqs.length;
+    let mx = 0; for (const r of d.amps) for (const v of r) mx = Math.max(mx, v);
+    const img = g.createImageData(cols, rows), lo = mx * 1e-3;
+    for (let i = 0; i < rows; i++) for (let k = 0; k < cols; k++) {
+      const t = Math.max(0, Math.min(1, Math.log10(Math.max(d.amps[i][k], lo) / lo) / 3)), o = ((rows - 1 - i) * cols + k) * 4;
+      // viridis aproximado
+      img.data[o] = Math.round(255 * Math.min(1, Math.max(0, -0.3 + 1.6 * t * t))); img.data[o + 1] = Math.round(255 * (0.05 + 0.85 * t)); img.data[o + 2] = Math.round(255 * (0.35 + 0.4 * Math.sin(Math.PI * t) - 0.2 * t)); img.data[o + 3] = 255;
+    }
+    const off = document.createElement('canvas'); off.width = cols; off.height = rows; off.getContext('2d').putImageData(img, 0, 0);
+    g.imageSmoothingEnabled = false; g.drawImage(off, L, T, w, h);
+    g.fillStyle = col.mute; g.textAlign = 'center'; g.textBaseline = 'top';
+    const fmax = d.freqs[cols - 1], sx = nice(fmax / (W < 520 ? 4 : 8));
+    for (let f = 0; f <= fmax + 1e-9; f += sx) g.fillText(fmt(f), L + f / fmax * w, T + h + 6);
+    g.textAlign = 'right'; g.fillText('Hz', L + w, T + h + 20);
+    g.textBaseline = 'middle';
+    const yv = d.y, yl = yv[0], yh = yv[yv.length - 1];
+    for (let k = 0; k <= 4; k++) { const v = yl + (yh - yl) * k / 4; g.fillText(fmt(v), L - 6, T + h - k / 4 * h); }
+    g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText(d.yLabel || '', 4, 4);
+  }
+}
