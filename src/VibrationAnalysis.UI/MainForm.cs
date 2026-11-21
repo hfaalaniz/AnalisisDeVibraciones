@@ -10,6 +10,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
+using VibrationAnalysis.Core.Acquisition;
 using VibrationAnalysis.Core.Analysis;
 using VibrationAnalysis.Core.Balancing;
 using VibrationAnalysis.Core.Dsp;
@@ -18,6 +19,7 @@ using VibrationAnalysis.Core.Model;
 using VibrationAnalysis.Core.Report;
 using VibrationAnalysis.Core.Simulation;
 using VibrationAnalysis.Core.Trending;
+using VibrationAnalysis.UI.Devices;
 
 namespace VibrationAnalysis.UI
 {
@@ -27,7 +29,7 @@ namespace VibrationAnalysis.UI
     /// </summary>
     public sealed class MainForm : Form
     {
-        private enum Source { Simulator, File, Serial, Manual }
+        private enum Source { Simulator, File, Serial, Manual, SoundCard, Daq }
 
         private const string WebUrl = "https://analisisdevibraciones.pages.dev/";
         private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-AR");
@@ -39,6 +41,10 @@ namespace VibrationAnalysis.UI
         private BalancingSession session;
         private SerialPort port;
         private readonly SerialStreamParser serialParser = new SerialStreamParser();
+        private IAcquisitionDevice device;
+        private AcquisitionSettings soundSettings, daqSettings;
+        private Button btnDaqSetup;
+        private IReadOnlyList<QualityIssue> lastIssues = Array.Empty<QualityIssue>();
         private readonly ThemeManager themes = new ThemeManager();
         private Theme theme;
         private string projectPath;
@@ -134,7 +140,7 @@ namespace VibrationAnalysis.UI
 
             tabs.SelectedIndexChanged += (s, e) => { if (tabs.SelectedTab == advPage) RunAdvancedAnalysis(); else if (tabs.SelectedTab == trPage) RunTransientAnalysis(); else if (tabs.SelectedTab == trendPage) EnsureTrendDb(); };
             liveTimer.Tick += (s, e) => { if (chkLive.Checked) Acquire(silent: true); };
-            FormClosing += (s, e) => { liveTimer.Stop(); ClosePort(); };
+            FormClosing += (s, e) => { liveTimer.Stop(); ClosePort(); StopDevice(); };
 
             ApplyTheme("Claro");
             NewSession();
@@ -228,7 +234,7 @@ namespace VibrationAnalysis.UI
         {
             var page = new TabPage("2. Adquisición");
             var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), WrapContents = true };
-            cmbSource = Combo(new[] { "Simulador", "Archivo CSV / WAV", "Puerto serie (sensor)", "Ingreso manual (solo balanceo)" }, 170);
+            cmbSource = Combo(new[] { "Simulador", "Archivo CSV / WAV", "Puerto serie (sensor)", "Ingreso manual (solo balanceo)", "Placa de sonido (IEPE)", "NI-DAQmx (IEPE)" }, 170);
             cmbSource.SelectedIndexChanged += (s, e) => OnSourceChanged();
             btnAcquire = Btn("Adquirir", (s, e) => Acquire());
             chkLive = new CheckBox { Text = "En vivo (1 s)", AutoSize = true, Margin = new Padding(8, 8, 8, 0) };
@@ -238,8 +244,18 @@ namespace VibrationAnalysis.UI
             cmbSerialMode = Combo(new[] { "Auto", "Texto", "Binario" }, 75);
             nudCapture = Nud(0.5m, 30, 2, 1); nudCapture.Width = 60;
             lblLink = new Label { AutoSize = true, Margin = new Padding(8, 8, 0, 0), ForeColor = Color.FromArgb(14, 124, 134) };
-            linkTimer.Tick += (s, e) => { if (port?.IsOpen == true) lock (serialParser) lblLink.Text = serialParser.Status + (serialParser.LastMessage.Length > 0 ? " · " + serialParser.LastMessage : ""); };
-            btnConnect = Btn("Conectar", (s, e) => ToggleSerial());
+            linkTimer.Tick += (s, e) =>
+            {
+                if (port?.IsOpen == true) lock (serialParser) lblLink.Text = serialParser.Status + (serialParser.LastMessage.Length > 0 ? " · " + serialParser.LastMessage : "");
+                else if (device != null)
+                {
+                    lblLink.Text = device.Status + (lastIssues.Count > 0 ? " · " + string.Join(" · ", lastIssues.Select(q => $"{q.Channel}: {q.Message}")) : "");
+                    lblLink.ForeColor = lastIssues.Any(q => q.Level == IssueLevel.Error) ? Color.FromArgb(200, 40, 40) : lastIssues.Any(q => q.Level == IssueLevel.Warning) ? Color.FromArgb(210, 130, 0) : Color.FromArgb(14, 124, 134);
+                    if (!device.IsRunning) btnConnect.Text = "Conectar";
+                }
+            };
+            btnConnect = Btn("Conectar", (s, e) => { if (CurrentSource is Source.SoundCard or Source.Daq) ToggleDevice(); else ToggleSerial(); });
+            btnDaqSetup = Btn("Configurar equipo…", (s, e) => SetupDevice());
             cmbChannel = Combo(new string[0], 110);
             cmbChannel.SelectedIndexChanged += (s, e) => RefreshAnalysis();
             cmbUnitView = Combo(new[] { "Velocidad (mm/s)", "Aceleración (g)", "Desplazamiento (µm)" }, 150);
@@ -247,7 +263,7 @@ namespace VibrationAnalysis.UI
             cmbWindow = Combo(new[] { "Hanning", "Flat-top", "Hamming", "Rectangular" }, 100);
             cmbWindow.SelectedIndexChanged += (s, e) => RefreshAnalysis();
             btnExportCsv = Btn("Exportar CSV", (s, e) => ExportCsv());
-            top.Controls.AddRange(new Control[] { Lbl("Fuente:"), cmbSource, btnAcquire, chkLive, Lbl("Puerto:"), cmbPort, cmbBaud, Lbl("Modo:"), cmbSerialMode, Lbl("Capturar (s):"), nudCapture, btnConnect, Btn("Info", (s, e) => { try { port?.WriteLine("INFO"); } catch { } }), Lbl("Canal:"), cmbChannel, Lbl("Ver:"), cmbUnitView, Lbl("Ventana:"), cmbWindow, btnExportCsv, lblLink });
+            top.Controls.AddRange(new Control[] { Lbl("Fuente:"), cmbSource, btnAcquire, chkLive, Lbl("Puerto:"), cmbPort, cmbBaud, Lbl("Modo:"), cmbSerialMode, Lbl("Capturar (s):"), nudCapture, btnConnect, btnDaqSetup, Btn("Info", (s, e) => { try { port?.WriteLine("INFO"); } catch { } }), Lbl("Canal:"), cmbChannel, Lbl("Ver:"), cmbUnitView, Lbl("Ventana:"), cmbWindow, btnExportCsv, lblLink });
 
             lblStats = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 4, 8, 4), Font = new Font("Consolas", 9.5f) };
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, FixedPanel = FixedPanel.Panel2 };
@@ -277,9 +293,13 @@ namespace VibrationAnalysis.UI
         private void OnSourceChanged()
         {
             var src = CurrentSource;
-            cmbPort.Enabled = cmbBaud.Enabled = btnConnect.Enabled = cmbSerialMode.Enabled = nudCapture.Enabled = src == Source.Serial;
-            chkLive.Enabled = src is Source.Simulator or Source.Serial;
-            btnAcquire.Text = src switch { Source.File => "Abrir archivo…", Source.Serial => "Capturar", Source.Manual => "—", _ => "Adquirir" };
+            bool dev = src is Source.SoundCard or Source.Daq;
+            cmbPort.Enabled = cmbBaud.Enabled = cmbSerialMode.Enabled = src == Source.Serial;
+            btnConnect.Enabled = nudCapture.Enabled = src == Source.Serial || dev;
+            btnDaqSetup.Enabled = dev;
+            if (device != null && !dev) StopDevice();
+            chkLive.Enabled = src is Source.Simulator or Source.Serial or Source.SoundCard or Source.Daq;
+            btnAcquire.Text = src switch { Source.File => "Abrir archivo…", Source.Serial or Source.SoundCard or Source.Daq => "Capturar", Source.Manual => "—", _ => "Adquirir" };
             btnAcquire.Enabled = src != Source.Manual;
             if (simGrid != null) simGrid.Parent.Visible = src == Source.Simulator;
             if (chkAutoPlace != null) { chkAutoPlace.Enabled = src == Source.Simulator; chkAutoPlace.Checked = src == Source.Simulator; }
@@ -305,6 +325,13 @@ namespace VibrationAnalysis.UI
                         if (port == null || !port.IsOpen) { if (!silent) Warn("Conectá primero el puerto serie."); return false; }
                         lock (serialParser) r = serialParser.ToRecording(machine.Rpm, (double)nudCapture.Value);
                         if (r.Length < 256) { if (!silent) Warn("Todavía no llegaron suficientes muestras del sensor."); return false; }
+                        break;
+                    case Source.SoundCard:
+                    case Source.Daq:
+                        if (device == null || !device.IsRunning) { if (!silent) Warn("Conectá primero el equipo (botón «Conectar»)."); return false; }
+                        (r, lastIssues) = device.Snapshot((double)nudCapture.Value, machine.Rpm);
+                        if (!silent && lastIssues.Any(q => q.Level == IssueLevel.Error))
+                            SetStatus("Atención: " + string.Join(" · ", lastIssues.Where(q => q.Level == IssueLevel.Error).Select(q => $"{q.Channel}: {q.Message}")));
                         break;
                     default:
                         return false;
@@ -379,6 +406,74 @@ namespace VibrationAnalysis.UI
             {
                 Error("Error al analizar la señal", ex);
             }
+        }
+
+        // ───────── Placa de sonido y NI-DAQmx ─────────
+        private static string DevicePath(bool sound) => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnalisisVibraciones", sound ? "placa_sonido.json" : "ni_daqmx.json");
+
+        private AcquisitionSettings DeviceSettings(bool sound)
+        {
+            var slot = sound ? soundSettings : daqSettings;
+            if (slot != null) return slot;
+            try { if (File.Exists(DevicePath(sound))) slot = JsonSerializer.Deserialize<AcquisitionSettings>(File.ReadAllText(DevicePath(sound))); } catch (Exception ex) { LogManager.Instance.LogError("Config. del equipo: " + ex.Message); }
+            slot ??= sound
+                ? new AcquisitionSettings { SampleRate = 48000, FullScaleVolts = 1.0 }
+                : new AcquisitionSettings
+                {
+                    SampleRate = 25600, Device = NiDaqmxDevice.Devices().FirstOrDefault() ?? "Dev1",
+                    Channels = new List<ChannelConfig>
+                    {
+                        new ChannelConfig { Name = "Acelerómetro 1", Physical = "ai0" },
+                        new ChannelConfig { Name = "Acelerómetro 2", Physical = "ai1", Enabled = false },
+                        new ChannelConfig { Name = "Tacómetro", Physical = "ai2", Kind = SensorKind.Tachometer, IepeMilliamps = 0 },
+                    },
+                };
+            if (sound) soundSettings = slot; else daqSettings = slot;
+            return slot;
+        }
+
+        private static IAcquisitionDevice NewDevice(bool sound) => sound ? new SoundCardDevice() : new NiDaqmxDevice();
+
+        private void SetupDevice()
+        {
+            bool sound = CurrentSource == Source.SoundCard;
+            using var dlg = new DaqSetupForm(DeviceSettings(sound), sound, () => NewDevice(sound));
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            if (sound) soundSettings = dlg.Result; else daqSettings = dlg.Result;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(DevicePath(sound)));
+                File.WriteAllText(DevicePath(sound), JsonSerializer.Serialize(dlg.Result, ProjOpts), new UTF8Encoding(false));
+            }
+            catch (Exception ex) { LogManager.Instance.LogError("Guardar config. del equipo: " + ex.Message); }
+            if (device != null) { StopDevice(); ToggleDevice(); }
+        }
+
+        private void ToggleDevice()
+        {
+            if (device != null && device.IsRunning) { StopDevice(); SetStatus("Equipo detenido."); return; }
+            bool sound = CurrentSource == Source.SoundCard;
+            if (!sound && !NiDaqmxDevice.IsInstalled()) { Warn("NI-DAQmx no está instalado en este equipo. Instalá el controlador de NI o usá la placa de sonido."); return; }
+            try
+            {
+                StopDevice();
+                device = NewDevice(sound);
+                device.Start(DeviceSettings(sound));
+                btnConnect.Text = "Desconectar";
+                linkTimer.Start();
+                SetStatus($"Adquiriendo con {device.Name}. «Capturar» toma los últimos {nudCapture.Value:0.#} s.");
+            }
+            catch (Exception ex) { Error("No se pudo iniciar el equipo", ex); StopDevice(); }
+        }
+
+        private void StopDevice()
+        {
+            try { device?.Dispose(); } catch (Exception ex) { LogManager.Instance.LogError("Detener equipo: " + ex.Message); }
+            device = null;
+            lastIssues = Array.Empty<QualityIssue>();
+            if (btnConnect != null) btnConnect.Text = "Conectar";
+            if (lblLink != null) { lblLink.Text = ""; lblLink.ForeColor = Color.FromArgb(14, 124, 134); }
+            if (port?.IsOpen != true) linkTimer.Stop();
         }
 
         private void ToggleSerial()
