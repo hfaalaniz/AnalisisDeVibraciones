@@ -13,6 +13,10 @@ public sealed class Spectrum
     public double Resolution { get; init; }
     public double SampleRate { get; init; }
     public WindowType Window { get; init; }
+    /// <summary>Cantidad de promedios (1 = espectro de un solo bloque).</summary>
+    public int Averages { get; init; } = 1;
+    /// <summary>Etiqueta del tipo de espectro (para gráficos e informes).</summary>
+    public string Kind { get; init; } = "Espectro";
 
     /// <summary>Busca el pico más alto en ±tolerancia (Hz) alrededor de una frecuencia.</summary>
     public (double Frequency, double Amplitude, int Index) PeakNear(double freq, double tolHz)
@@ -45,7 +49,7 @@ public sealed class Spectrum
         WindowType.Hann => 1.5,
         WindowType.Hamming => 1.363,
         WindowType.FlatTop => 3.77,
-        _ => 1.0,
+        _ => WindowFunctions.Enbw(WindowFunctions.Create(Window, 4096)),
     };
 }
 

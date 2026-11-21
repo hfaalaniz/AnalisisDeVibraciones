@@ -81,6 +81,8 @@ namespace VibrationAnalysis.UI
         public string EffectiveMass => m.EffectiveMassKg.ToString("0.00");
         [Category("3. Rotor"), DisplayName("Álabes / posiciones fijas"), Description("Cantidad de álabes o agujeros donde se pueden colocar pesos (0 = posición libre).")]
         public int Blades { get => m.Blades; set => m.Blades = Math.Max(0, value); }
+        [Category("3. Rotor"), DisplayName("Dientes del engranaje"), Description("Dientes del engranaje montado en este eje (0 = sin engranaje). Se usa para la frecuencia de engrane (GMF).")]
+        public int GearTeeth { get => m.GearTeeth; set => m.GearTeeth = Math.Max(0, value); }
         [Category("3. Rotor"), DisplayName("Eje vertical")]
         public bool VerticalShaft { get => m.VerticalShaft; set => m.VerticalShaft = value; }
 
@@ -118,6 +120,8 @@ namespace VibrationAnalysis.UI
         [Category("Fallas"), DisplayName("Rodamiento pista externa (mm/s)")] public double Bearing { get => s.BearingOuterRace; set => s.BearingOuterRace = Math.Max(0, value); }
         [Category("Fallas"), DisplayName("Remolino de aceite (mm/s)")] public double OilWhirl { get => s.OilWhirl; set => s.OilWhirl = Math.Max(0, value); }
         [Category("Fallas"), DisplayName("Eléctrico 2× red (mm/s)")] public double Electrical { get => s.Electrical; set => s.Electrical = Math.Max(0, value); }
+        [Category("Fallas"), DisplayName("Dientes del engranaje")] public int GearTeeth { get => s.GearTeeth; set => s.GearTeeth = Math.Clamp(value, 0, 500); }
+        [Category("Fallas"), DisplayName("Desgaste de engranaje (mm/s)"), Description("Frecuencia de engrane con bandas laterales a ±1X.")] public double GearWear { get => s.GearWear; set => s.GearWear = Math.Max(0, value); }
         [Category("Pesos colocados"), DisplayName("Masas en el rotor"), Description("Pesos de prueba y de corrección colocados en el rotor virtual.")]
         public string Masses => s.AddedMasses.Count == 0 ? "ninguna" : string.Join("; ", s.AddedMasses.Select(m => $"P{m.Plane}: {m.Grams:0.##} g ∠ {m.AngleDeg:0}°"));
     }

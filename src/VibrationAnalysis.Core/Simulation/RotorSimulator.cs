@@ -31,6 +31,10 @@ public sealed class SimulatorSettings
     public double BearingOuterRace { get; set; }
     public double OilWhirl { get; set; }
     public double Electrical { get; set; }
+    /// <summary>Dientes del engranaje en el eje (0 = sin engranaje).</summary>
+    public int GearTeeth { get; set; }
+    /// <summary>Amplitud de la frecuencia de engrane con bandas laterales a ±1X (desgaste/excentricidad), mm/s.</summary>
+    public double GearWear { get; set; }
     public double LineFrequencyHz { get; set; } = 50;
     public BearingGeometry Bearing { get; set; } = new(9, 7.94, 39.0, 0);
     public int Seed { get; set; } = 12345;
@@ -117,6 +121,12 @@ public sealed class RotorSimulator
                     v += s.Looseness * 0.35 * Math.Cos(0.5 * th + 0.4) + s.Looseness * 0.25 * Math.Cos(1.5 * th + 1.2);
                 }
                 if (s.OilWhirl > 0) v += s.OilWhirl * Math.Cos(0.45 * th + 0.3);
+                if (s.GearWear > 0 && s.GearTeeth > 1)
+                {
+                    int z = s.GearTeeth;
+                    v += s.GearWear * sideFactor * (Math.Cos(z * th + 0.3) + 0.45 * Math.Cos((z - 1) * th + 1.1) + 0.45 * Math.Cos((z + 1) * th - 0.4)
+                                                     + 0.2 * Math.Cos((z - 2) * th + 2.0) + 0.2 * Math.Cos((z + 2) * th - 1.7));
+                }
                 if (s.Electrical > 0) v += s.Electrical * Math.Cos(2 * Math.PI * 2 * s.LineFrequencyHz * (i / fs));
                 x[i] = v + s.NoiseMmS * Gauss();
             }

@@ -25,6 +25,8 @@ public enum FaultType
     BearingOuterRace,
     BearingInnerRace,
     BearingBall,
+    BearingCage,
+    GearMesh,
     BladePass,
     Electrical,
 }
@@ -44,6 +46,10 @@ public sealed class DiagnosisInput
     public double AxialToRadialRatio { get; init; }
     /// <summary>Curtosis de la señal de aceleración (impactos ⇒ valores &gt; 4).</summary>
     public double AccelerationKurtosis { get; init; }
+    /// <summary>Espectro de envolvente de aceleración (opcional): confirma defectos de rodamientos aunque no se vean en velocidad.</summary>
+    public Spectrum? EnvelopeSpectrum { get; init; }
+    /// <summary>Dientes del engranaje montado en este eje (0 = sin engranaje).</summary>
+    public int GearTeeth { get; init; }
 }
 
 /// <summary>
@@ -122,6 +128,44 @@ public static class FaultDiagnosis
             Check(FaultType.BearingOuterRace, "Rodamiento: pista externa (BPFO)", b.BpfoOrder, "la pista externa");
             Check(FaultType.BearingInnerRace, "Rodamiento: pista interna (BPFI)", b.BpfiOrder, "la pista interna");
             Check(FaultType.BearingBall, "Rodamiento: elementos rodantes (BSF)", b.BsfOrder * 2, "los elementos rodantes");
+        }
+
+        // Rodamientos por envolvente: armónicos de la frecuencia de defecto sobre el piso local
+        if (input.Bearing is { } bg && input.EnvelopeSpectrum is { } env)
+        {
+            void Env(FaultType t, string name, double order, string where)
+            {
+                var (cnt, a1e, snr1) = SpectralFeatures.DefectHarmonics(env, order * f1, 4, 3);
+                if (snr1 < 3 || (cnt < 2 && snr1 < 6)) return;   // la fundamental debe estar: evita coincidencias con armónicos de otro defecto
+                double conf = Math.Clamp(0.45 + 0.1 * cnt + Math.Min(snr1, 20) / 100 + (input.AccelerationKurtosis > 4 ? 0.1 : 0), 0, 0.95);
+                string ev = $"Envolvente: {cnt} armónicos de {order:F2}X ({order * f1:F1} Hz) sobre el piso; 1.º = {a1e:0.####} ({snr1:0.0}× el piso).";
+                int i = res.FindIndex(r => r.Type == t);
+                if (i >= 0) res[i] = res[i] with { Confidence = Math.Max(res[i].Confidence, conf), Evidence = res[i].Evidence + " " + ev };
+                else res.Add(new Finding(t, name, conf, ev, $"Defecto probable en {where}. Seguir la tendencia de la envolvente y planificar el cambio del rodamiento."));
+            }
+            Env(FaultType.BearingOuterRace, "Rodamiento: pista externa (BPFO)", bg.BpfoOrder, "la pista externa");
+            Env(FaultType.BearingInnerRace, "Rodamiento: pista interna (BPFI)", bg.BpfiOrder, "la pista interna");
+            Env(FaultType.BearingBall, "Rodamiento: elementos rodantes (BSF)", bg.BsfOrder, "los elementos rodantes");
+            Env(FaultType.BearingCage, "Rodamiento: jaula (FTF)", bg.FtfOrder, "la jaula (lubricación, desgaste avanzado)");
+        }
+
+        // Engranajes: frecuencia de engrane (GMF) con bandas laterales a ±1X
+        if (input.GearTeeth > 1)
+        {
+            double gmf = input.GearTeeth * f1;
+            double ag = A(input.GearTeeth);
+            if (ag > floor * 3 && gmf < s.Frequencies[^1])
+            {
+                var sb = SpectralFeatures.Sidebands(s, gmf, f1, 3, tol).Where(x => x.N != 0).ToList();
+                int strong = sb.Count(x => x.Amplitude > Math.Max(floor * 2, ag * 0.1));
+                if (strong >= 2)
+                {
+                    double conf = Math.Clamp(0.4 + 0.08 * strong, 0, 0.85);
+                    res.Add(new Finding(FaultType.GearMesh, "Engranaje: desgaste o excentricidad", conf,
+                        $"GMF {input.GearTeeth}X ({gmf:F1} Hz) = {ag:F2} mm/s con {strong} bandas laterales a ±1X ({f1:F2} Hz).",
+                        "Bandas laterales a ±1X del eje indican excentricidad, diente dañado o desgaste en ese engranaje. Confirmar con cepstrum (pico en 1/1X) y revisar contacto y juego."));
+                }
+            }
         }
 
         // Paso de álabes

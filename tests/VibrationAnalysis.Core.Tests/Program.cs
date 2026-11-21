@@ -204,10 +204,159 @@ t.Run("Masa del rotor y recomendación de planos", () =>
     m.LengthMm = 900; T.Eq(m.RecommendedPlanes().Planes, 2, "largo");
 });
 
+// ───────────── Procesamiento avanzado ─────────────
+t.Run("Butterworth: −3 dB en el corte, pasabanda con ganancia 1 al centro", () =>
+{
+    var lp = IirFilter.Butterworth(FilterKind.LowPass, 4, 1000, 100);
+    T.Near(lp.Gain(100), Math.Sqrt(0.5), 0.005, "corte"); T.Near(lp.Gain(10), 1, 0.001, "banda pasante"); T.True(lp.Gain(400) < 0.01, "rechazo");
+    var bp = IirFilter.Butterworth(FilterKind.BandPass, 4, 20000, 2000, 4000);
+    T.Near(bp.Gain(Math.Sqrt(2000 * 4000)), 1, 0.05, "centro"); T.True(bp.Gain(200) < 1e-3 && bp.Gain(9000) < 0.05, "fuera de banda");
+});
+t.Run("FiltFilt: fase cero en la banda pasante", () =>
+{
+    double fs = 1000; var x = Enumerable.Range(0, 2000).Select(i => Math.Sin(2 * Math.PI * 20 * i / fs)).ToArray();
+    var y = IirFilter.Butterworth(FilterKind.LowPass, 4, fs, 200).FiltFilt(x);
+    for (int i = 200; i < 1800; i++) T.Near(y[i], x[i], 0.01, $"muestra {i}");
+});
+t.Run("Ventanas Blackman-Harris y Kaiser: amplitud correcta", () =>
+{
+    double fs = 1024; var x = Enumerable.Range(0, 1024).Select(i => 3.0 * Math.Sin(2 * Math.PI * 50 * i / fs)).ToArray();
+    foreach (var w in new[] { WindowType.BlackmanHarris, WindowType.Kaiser })
+        T.Near(SpectrumAnalyzer.Compute(x, fs, w).PeakNear(50, 1).Amplitude, 3.0, 0.03, WindowFunctions.DisplayName(w));
+});
+t.Run("Welch: promedio lineal, exponencial y retención de picos", () =>
+{
+    var rnd = new Random(7); double fs = 2048;
+    var x = Enumerable.Range(0, 16384).Select(i => 3.0 * Math.Sin(2 * Math.PI * 64 * i / fs) + 0.5 * Gauss(rnd)).ToArray();
+    var lin = AdvancedSpectrum.Averaged(x, fs, 2048, 0.5, WindowType.Hann, AveragingMode.Linear);
+    T.Eq(lin.Averages, 15, "promedios"); T.Near(lin.PeakNear(64, 1).Amplitude, 3.0, 0.08, "amplitud");
+    var pk = AdvancedSpectrum.Averaged(x, fs, 2048, 0.5, WindowType.Hann, AveragingMode.PeakHold);
+    T.True(pk.Amplitudes.Zip(lin.Amplitudes).All(p => p.First >= p.Second * 0.999), "pico ≥ promedio");
+    var ex = AdvancedSpectrum.Averaged(x, fs, 2048, 0.5, WindowType.Hann, AveragingMode.Exponential);
+    T.Near(ex.PeakNear(64, 1).Amplitude, 3.0, 0.1, "exponencial");
+});
+t.Run("PSD: ruido blanco integra a su varianza", () =>
+{
+    var rnd = new Random(3); double fs = 1000, sigma = 2;
+    var x = Enumerable.Range(0, 65536).Select(_ => sigma * Gauss(rnd)).ToArray();
+    var p = AdvancedSpectrum.Psd(x, fs, 1024, 0.5);
+    T.Near(p.BandRms(0, fs / 2), sigma, 0.06, "RMS");
+    T.Near(p.Psd.Skip(5).Take(400).Average(), 2 * sigma * sigma / fs, 2 * sigma * sigma / fs * 0.08, "nivel");
+});
+t.Run("Zoom FFT: amplitud exacta y separa líneas a 0,7 Hz", () =>
+{
+    double fs = 4096; int n = 65536;
+    var x = Enumerable.Range(0, n).Select(i => 2.0 * Math.Cos(2 * Math.PI * 120.3 * i / fs) + 1.0 * Math.Cos(2 * Math.PI * 121.0 * i / fs + 1) + 0.8 * Math.Cos(2 * Math.PI * 25 * i / fs)).ToArray();
+    var zf = AdvancedSpectrum.Zoom(x, fs, 120, 4, WindowType.FlatTop);
+    T.Near(zf.PeakNear(120.3, 0.2).Amplitude, 2.0, 0.04, "amplitud 120,3");
+    T.True(zf.Frequencies[0] >= 118 - 1e-9 && zf.Frequencies[^1] <= 122 + 1e-9, "banda");
+    var zh = AdvancedSpectrum.Zoom(x, fs, 120, 4, WindowType.Hann);
+    var pk = SpectralFeatures.Peaks(zh, 2);
+    T.True(pk.Any(q => Math.Abs(q.Frequency - 120.3) < 0.05) && pk.Any(q => Math.Abs(q.Frequency - 121.0) < 0.05), "dos líneas");
+});
+t.Run("Cepstrum: familia de armónicos de 25 Hz ⇒ pico en 40 ms", () =>
+{
+    var rnd = new Random(5); double fs = 5000; int n = 16384;
+    var x = new double[n];
+    for (int k = 1; k <= 60; k++)
+    {
+        double g = 1 / (1 + Math.Pow((25 * k - 600) / 250.0, 2)), ph = rnd.NextDouble() * 6.28;
+        for (int i = 0; i < n; i++) x[i] += g * Math.Cos(2 * Math.PI * 25 * k * i / fs + ph);
+    }
+    for (int i = 0; i < n; i++) x[i] += 0.01 * Gauss(rnd);
+    var c = AdvancedSpectrum.Cepstrum(x, fs);
+    T.Near(c.Dominant(0.005, 0.2).Quefrency, 0.04, 0.0005, "quefrencia");
+    T.True(c.FamilyProminence(0.04) > 3, "prominencia");
+    T.True(c.FamilyProminence(0.0317) < c.FamilyProminence(0.04) / 3, "período falso");
+});
+t.Run("Hilbert: envolvente de una señal modulada", () =>
+{
+    double fs = 4000; int n = 4000;
+    var x = Enumerable.Range(0, n).Select(i => (1 + 0.5 * Math.Cos(2 * Math.PI * 5 * i / fs)) * Math.Cos(2 * Math.PI * 400 * i / fs)).ToArray();
+    var a = AdvancedSpectrum.Analytic(x);
+    for (int i = 200; i < n - 200; i += 7) T.Near(a[i].Magnitude, 1 + 0.5 * Math.Cos(2 * Math.PI * 5 * i / fs), 0.01, $"muestra {i}");
+});
+t.Run("Envolvente y curtosis espectral: defecto de rodamiento a 87,3 Hz", () =>
+{
+    var (x, fs) = BearingSignal(87.3);
+    var sk = AdvancedSpectrum.SpectralKurtosis(x, fs);
+    var band = sk.SuggestBand(1500, 500);
+    double center = (band.Low + band.High) / 2;
+    T.True(center > 2000 && center < 4000, $"banda sugerida {band.Low:0}–{band.High:0}");
+    var env = AdvancedSpectrum.EnvelopeSpectrum(x, fs, band.Low, band.High);
+    T.Near(SpectralFeatures.Peaks(env, 1, 5)[0].Frequency, 87.3, 0.5, "pico de la envolvente");
+    T.True(SpectralFeatures.DefectHarmonics(env, 87.3).Count >= 3, "armónicos");
+    var auto = AdvancedSpectrum.AutoEnvelopeBand(x, fs, 25, 87.3);
+    T.True((auto.Low + auto.High) / 2 > 2000 && (auto.Low + auto.High) / 2 < 4000, $"banda automática {auto.Low:0}–{auto.High:0}");
+    var plain = SpectrumAnalyzer.Compute(x, fs);
+    T.True(SpectralFeatures.Peaks(plain, 1, 5)[0].Frequency < 30, "en el espectro común domina 1X");
+});
+t.Run("Armónicos, bandas laterales y picos", () =>
+{
+    double fs = 2000; int n = 4000;
+    var x = Enumerable.Range(0, n).Select(i => { double t2 = i / fs; return 3 * Math.Cos(2 * Math.PI * 20 * t2) + 1 * Math.Cos(2 * Math.PI * 40 * t2) + 2 * Math.Cos(2 * Math.PI * 300 * t2) + 0.5 * Math.Cos(2 * Math.PI * 280 * t2) + 0.5 * Math.Cos(2 * Math.PI * 320 * t2); }).ToArray();
+    var sp = SpectrumAnalyzer.Compute(x, fs, WindowType.FlatTop);
+    var h = SpectralFeatures.Harmonics(sp, 20, 2);
+    T.Near(h[0].Amplitude, 3, 0.05, "1X"); T.Near(h[1].Amplitude, 1, 0.05, "2X");
+    var sb = SpectralFeatures.Sidebands(sp, 300, 20, 1);
+    T.Near(sb.First(b => b.N == -1).Amplitude, 0.5, 0.03, "inferior"); T.Near(sb.First(b => b.N == 1).Amplitude, 0.5, 0.03, "superior");
+    T.Near(SpectralFeatures.Peaks(sp, 1, 0, 0.01, 20)[0].Order, 1, 0.01, "orden del pico mayor");
+});
+t.Run("Diagnóstico: rodamiento confirmado por envolvente", () =>
+{
+    var s = new SimulatorSettings { Sensors = 1, Unbalance1 = new Phasor(400, 0), Unbalance2 = new Phasor(0, 0), BearingOuterRace = 0.8 };
+    var r = new RotorSimulator(s).Acquire();
+    var acc = SignalTools.Convert(r.Channels[0].Data, r.SampleRate, VibrationUnit.VelocityMmS, VibrationUnit.AccelerationG, 2);
+    var band = AdvancedSpectrum.AutoEnvelopeBand(acc, r.SampleRate, 25, s.Bearing.BpfiOrder * 25);
+    T.True(band.Low < 2100 && band.High > 1500, $"banda automática {band.Low:0}–{band.High:0} cerca de la resonancia");
+    var env = AdvancedSpectrum.EnvelopeSpectrum(acc, r.SampleRate, band.Low, band.High);
+    var sp = SpectrumAnalyzer.Compute(r.Channels[0].Data, r.SampleRate);
+    var f = FaultDiagnosis.Diagnose(new DiagnosisInput { VelocitySpectrum = sp, RunningSpeedHz = r.MeasuredRpm() / 60, Bearing = s.Bearing, EnvelopeSpectrum = env });
+    var b = f.FirstOrDefault(x => x.Type == FaultType.BearingOuterRace);
+    T.True(b != null && b.Evidence.Contains("Envolvente"), "BPFO por envolvente");
+    T.True(!f.Any(x => x.Type == FaultType.BearingInnerRace), "sin BPFI falso");
+});
+t.Run("Diagnóstico: engranaje con bandas laterales a ±1X", () =>
+{
+    var s = new SimulatorSettings { Sensors = 1, Unbalance1 = new Phasor(300, 0), Unbalance2 = new Phasor(0, 0), GearTeeth = 23, GearWear = 1.5 };
+    var r = new RotorSimulator(s).Acquire();
+    var sp = SpectrumAnalyzer.Compute(r.Channels[0].Data, r.SampleRate);
+    var f = FaultDiagnosis.Diagnose(new DiagnosisInput { VelocitySpectrum = sp, RunningSpeedHz = r.MeasuredRpm() / 60, GearTeeth = 23 });
+    T.True(f.Any(x => x.Type == FaultType.GearMesh), "GMF");
+    var sp0 = SpectrumAnalyzer.Compute(new RotorSimulator(new SimulatorSettings { Sensors = 1 }).Acquire().Channels[0].Data, r.SampleRate);
+    T.True(!FaultDiagnosis.Diagnose(new DiagnosisInput { VelocitySpectrum = sp0, RunningSpeedHz = 25, GearTeeth = 23 }).Any(x => x.Type == FaultType.GearMesh), "sin falso positivo");
+});
+
+t.Run("Catálogo de frecuencias: identificación de picos", () =>
+{
+    var b = new BearingGeometry(9, 7.94, 39.0, 0);
+    var m = FrequencyCatalog.Build(25, b, 0, 23, 50);
+    T.Eq(FrequencyCatalog.Identify(50.1, m, 0.5), "2X", "2X");
+    T.Eq(FrequencyCatalog.Identify(25 * b.BpfoOrder, m, 0.5), "BPFO", "BPFO");
+    T.Eq(FrequencyCatalog.Identify(23 * 25 + 25, m, 0.5), "GMF+1X", "banda lateral");
+    T.Eq(FrequencyCatalog.Identify(333, m, 0.5), "", "sin rótulo");
+});
+
 int failed = t.Summary();
 var emitIdx = Array.IndexOf(args, "--emit");
 if (emitIdx >= 0 && emitIdx + 1 < args.Length) Vectors.Emit(args[emitIdx + 1]);
 return failed == 0 ? 0 : 1;
+
+static double Gauss(Random r) { double u1 = 1.0 - r.NextDouble(), u2 = r.NextDouble(); return Math.Sqrt(-2 * Math.Log(u1)) * Math.Cos(2 * Math.PI * u2); }
+
+/// Impactos a fDefect que excitan una resonancia de 3 kHz, con desbalance fuerte a 25 Hz y ruido.
+static (double[] X, double Fs) BearingSignal(double fDefect)
+{
+    var rnd = new Random(11); double fs = 20000; int n = 32768;
+    var x = new double[n];
+    for (int i = 0; i < n; i++) x[i] = 3.0 * Math.Sin(2 * Math.PI * 25 * i / fs) + 0.3 * Gauss(rnd);
+    for (double tk = 0.003; tk < n / fs; tk += 1 / fDefect)
+    {
+        int i0 = (int)(tk * fs);
+        for (int i = i0; i < n && i < i0 + 200; i++) { double tt = (i - i0) / fs; x[i] += 1.5 * Math.Exp(-700 * tt) * Math.Sin(2 * Math.PI * 3000 * tt); }
+    }
+    return (x, fs);
+}
 
 static IReadOnlyList<Finding> Diagnose(Recording r, BearingGeometry? b = null)
 {
