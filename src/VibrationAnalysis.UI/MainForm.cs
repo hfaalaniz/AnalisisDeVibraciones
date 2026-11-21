@@ -172,7 +172,8 @@ namespace VibrationAnalysis.UI
             file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add("Importar señal (CSV / WAV)…", null, (s, e) => { cmbSource.SelectedIndex = (int)Source.File; Acquire(); });
             file.DropDownItems.Add("Exportar señal a CSV…", null, (s, e) => ExportCsv());
-            file.DropDownItems.Add("Generar informe…", null, (s, e) => GenerateReport());
+            file.DropDownItems.Add("Guardar informe PDF…", null, (s, e) => SaveReport(true));
+            file.DropDownItems.Add("Vista previa del informe", null, (s, e) => PreviewReport());
             file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add("Salir", null, (s, e) => Close());
             var view = new ToolStripMenuItem("&Ver");
