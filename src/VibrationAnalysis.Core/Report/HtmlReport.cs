@@ -10,6 +10,9 @@ namespace VibrationAnalysis.Core.Report;
 /// <summary>Informe técnico en HTML autocontenido (se imprime o se guarda como PDF desde el navegador).</summary>
 public sealed class HtmlReport
 {
+    /// <summary>Versión que figura al pie del informe (la app la completa con la del ejecutable).</summary>
+    public static string ProductVersion { get; set; } = "";
+
     public required Machine Machine { get; init; }
     public string Technician { get; init; } = "";
     public string Company { get; init; } = "";
@@ -85,7 +88,7 @@ public sealed class HtmlReport
             }
         }
         if (Notes.Length > 0) sb.Append("<h2>Observaciones</h2><p>").Append(E(Notes)).Append("</p>");
-        sb.Append("<p class=\"muted\" style=\"margin-top:32px\">Generado con Análisis de Vibraciones y Balanceo — Fabian Alaniz · ElectroNet. Los diagnósticos automáticos son orientativos y deben ser validados por personal calificado.</p>");
+        sb.Append("<p class=\"muted\" style=\"margin-top:32px\">Generado con Análisis de Vibraciones y Balanceo " + ProductVersion + " — Fabian Alaniz · ElectroNet. Los diagnósticos automáticos son orientativos y deben ser validados por personal calificado.</p>");
         sb.Append("</body></html>");
         return sb.ToString();
     }
