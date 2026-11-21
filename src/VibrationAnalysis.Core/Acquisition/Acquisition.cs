@@ -225,7 +225,7 @@ public static class SensorCalibration
     /// <summary>Sensibilidad (mV por unidad) a partir de la señal medida en volts con una referencia de amplitud RMS conocida.</summary>
     public static double SensitivityFromReference(IReadOnlyList<double> volts, double sampleRate, double referenceHz, double referenceRms)
     {
-        if (referenceRms <= 0) throw new ArgumentOutOfRangeException(nameof(referenceRms));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(referenceRms);
         var (a, _) = SpectrumAnalyzer.FitSinusoid(volts, sampleRate, referenceHz);
         return a / Math.Sqrt(2) * 1000 / referenceRms;
     }

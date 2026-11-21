@@ -64,7 +64,7 @@ public static class OrderTracking
         int samplesPerRev, int pulsesPerRev = 1, int firstRev = 0, int revolutions = -1)
     {
         if (pulses.Count < 2) throw new ArgumentException("Se necesitan al menos 2 pulsos de tacómetro.");
-        if (samplesPerRev < 4) throw new ArgumentOutOfRangeException(nameof(samplesPerRev));
+        ArgumentOutOfRangeException.ThrowIfLessThan(samplesPerRev, 4);
         int totalRevs = (pulses.Count - 1) / pulsesPerRev;
         if (revolutions < 0) revolutions = totalRevs - firstRev;
         revolutions = Math.Min(revolutions, totalRevs - firstRev);
@@ -114,7 +114,7 @@ public static class OrderTracking
     public static OrderTrack Track(IReadOnlyList<double> x, double fs, IReadOnlyList<double> pulses, double order = 1, int revsPerBlock = 4,
         int stepRevs = 0, int pulsesPerRev = 1)
     {
-        if (order <= 0) throw new ArgumentOutOfRangeException(nameof(order));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(order);
         if (stepRevs <= 0) stepRevs = Math.Max(1, revsPerBlock / 2);
         // El orden fraccionario necesita un número de vueltas que lo haga entero (p. ej. 0,5X ⇒ bloques pares)
         if (Math.Abs(order * revsPerBlock - Math.Round(order * revsPerBlock)) > 1e-6)

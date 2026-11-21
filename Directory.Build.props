@@ -1,0 +1,9 @@
+<Project>
+  <!-- Calidad de código común a todos los proyectos -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <!-- Analizadores .NET recomendados en el núcleo y las pruebas (la interfaz WinForms usa el nivel por defecto) -->
+    <AnalysisLevel Condition="'$(MSBuildProjectName)' != 'VibrationAnalysis.UI'">latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+</Project>

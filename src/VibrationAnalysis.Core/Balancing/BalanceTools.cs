@@ -66,7 +66,7 @@ public static class WeightSplitter
     /// </summary>
     public static (int PosA, double AngleA, double MassA, int PosB, double AngleB, double MassB) Split(Phasor w, int positions, double firstPositionDeg = 0)
     {
-        if (positions < 2) throw new ArgumentOutOfRangeException(nameof(positions));
+        ArgumentOutOfRangeException.ThrowIfLessThan(positions, 2);
         double step = 360.0 / positions;
         double rel = Angles.Normalize(w.AngleDeg - firstPositionDeg);
         int a = (int)Math.Floor(rel / step) % positions;

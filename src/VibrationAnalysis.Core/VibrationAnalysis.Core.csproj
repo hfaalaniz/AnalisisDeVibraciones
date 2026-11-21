@@ -13,6 +13,5 @@
     <Description>Núcleo de cálculo: FFT, severidad ISO, diagnóstico de fallas y balanceo por coeficientes de influencia.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 </Project>

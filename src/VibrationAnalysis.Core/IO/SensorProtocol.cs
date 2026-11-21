@@ -31,7 +31,7 @@ public static class SensorProtocol
     }
 
     /// <summary>Arma una trama binaria (lo mismo que hace el firmware). <paramref name="samples"/>[canal][muestra] en unidades crudas.</summary>
-    public static byte[] EncodeFrame(ushort seq, short[][] samples, bool[] tach)
+    public static byte[] EncodeFrame(ushort seq, short[][] samples, bool[]? tach)
     {
         int ch = samples.Length, n = samples[0].Length, tb = (n + 7) / 8;
         var f = new byte[HeaderBytes + n * ch * 2 + tb + 2];

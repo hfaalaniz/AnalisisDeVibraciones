@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -54,11 +55,11 @@ public static class MarkdownHtml
             string line = lines[i];
             string t = line.Trim();
 
-            if (t.StartsWith("```"))
+            if (t.StartsWith("```", StringComparison.Ordinal))
             {
                 FlushPara(); CloseLists();
                 var code = new List<string>();
-                for (i++; i < lines.Length && !lines[i].Trim().StartsWith("```"); i++) code.Add(lines[i]);
+                for (i++; i < lines.Length && !lines[i].Trim().StartsWith("```", StringComparison.Ordinal); i++) code.Add(lines[i]);
                 sb.Append("<pre><code>").Append(E(string.Join("\n", code))).Append("</code></pre>\n");
                 continue;
             }
@@ -70,35 +71,35 @@ public static class MarkdownHtml
                 FlushPara(); CloseLists();
                 int lv = h.Groups[1].Length;
                 string text = h.Groups[2].Value;
-                sb.Append($"<h{lv} id=\"{E(Slug(text))}\">").Append(Inline(text, baseUrl)).Append($"</h{lv}>\n");
+                sb.Append(CultureInfo.InvariantCulture, $"<h{lv} id=\"{E(Slug(text))}\">").Append(Inline(text, baseUrl)).Append(CultureInfo.InvariantCulture, $"</h{lv}>\n");
                 continue;
             }
             if (t == "---" || t == "***") { FlushPara(); CloseLists(); sb.Append("<hr>\n"); continue; }
 
-            if (t.StartsWith(">"))
+            if (t.StartsWith('>'))
             {
                 FlushPara(); CloseLists();
                 var q = new List<string>();
-                for (; i < lines.Length && lines[i].Trim().StartsWith(">"); i++) q.Add(lines[i].Trim().TrimStart('>').Trim());
+                for (; i < lines.Length && lines[i].Trim().StartsWith('>'); i++) q.Add(lines[i].Trim().TrimStart('>').Trim());
                 i--;
                 sb.Append("<blockquote><p>").Append(Inline(string.Join(" ", q), baseUrl)).Append("</p></blockquote>\n");
                 continue;
             }
 
-            if (t.StartsWith("|") && i + 1 < lines.Length && Regex.IsMatch(lines[i + 1].Trim(), @"^\|?\s*:?-{2,}"))
+            if (t.StartsWith('|') && i + 1 < lines.Length && Regex.IsMatch(lines[i + 1].Trim(), @"^\|?\s*:?-{2,}"))
             {
                 FlushPara(); CloseLists();
                 var head = Cells(t);
                 var align = Cells(lines[i + 1].Trim()).Select(c => c.StartsWith(':') && c.EndsWith(':') ? "center" : c.EndsWith(':') ? "right" : "").ToList();
                 string A(int k) => k < align.Count && align[k].Length > 0 ? $" style=\"text-align:{align[k]}\"" : "";
                 sb.Append("<table><thead><tr>");
-                for (int k = 0; k < head.Count; k++) sb.Append($"<th{A(k)}>").Append(Inline(head[k], baseUrl)).Append("</th>");
+                for (int k = 0; k < head.Count; k++) sb.Append(CultureInfo.InvariantCulture, $"<th{A(k)}>").Append(Inline(head[k], baseUrl)).Append("</th>");
                 sb.Append("</tr></thead><tbody>");
-                for (i += 2; i < lines.Length && lines[i].Trim().StartsWith("|"); i++)
+                for (i += 2; i < lines.Length && lines[i].Trim().StartsWith('|'); i++)
                 {
                     var row = Cells(lines[i].Trim());
                     sb.Append("<tr>");
-                    for (int k = 0; k < row.Count; k++) sb.Append($"<td{A(k)}>").Append(Inline(row[k], baseUrl)).Append("</td>");
+                    for (int k = 0; k < row.Count; k++) sb.Append(CultureInfo.InvariantCulture, $"<td{A(k)}>").Append(Inline(row[k], baseUrl)).Append("</td>");
                     sb.Append("</tr>");
                 }
                 i--;
@@ -126,7 +127,7 @@ public static class MarkdownHtml
                 continue;
             }
 
-            if (lists.Count > 0 && line.StartsWith(" ")) { sb.Append(' ').Append(Inline(t, baseUrl)); continue; }
+            if (lists.Count > 0 && line.StartsWith(' ')) { sb.Append(' ').Append(Inline(t, baseUrl)); continue; }
             CloseLists();
             para.Add(t);
         }
@@ -166,8 +167,8 @@ public static class MarkdownHtml
     private static List<string> Cells(string row)
     {
         row = row.Trim();
-        if (row.StartsWith("|")) row = row[1..];
-        if (row.EndsWith("|")) row = row[..^1];
+        if (row.StartsWith('|')) row = row[1..];
+        if (row.EndsWith('|')) row = row[..^1];
         return row.Split('|').Select(c => c.Trim()).ToList();
     }
 
@@ -180,13 +181,13 @@ public static class MarkdownHtml
         {
             string url = m.Groups[2].Value.Replace("&amp;", "&");
             bool external = Regex.IsMatch(url, @"^[a-z]+:", RegexOptions.IgnoreCase);
-            if (!external && !url.StartsWith("#") && baseUrl.Length > 0) url = Combine(baseUrl, url);
-            string target = url.StartsWith("#") ? "" : " target=\"_blank\" rel=\"noopener\"";
+            if (!external && !url.StartsWith('#') && baseUrl.Length > 0) url = Combine(baseUrl, url);
+            string target = url.StartsWith('#') ? "" : " target=\"_blank\" rel=\"noopener\"";
             return $"<a href=\"{E(url)}\"{target}>{m.Groups[1].Value}</a>";
         });
         s = Regex.Replace(s, @"\*\*(.+?)\*\*", "<b>$1</b>");
         s = Regex.Replace(s, @"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", "<i>$1</i>");
-        s = Regex.Replace(s, "\u0001(\\d+)\u0001", m => "<code>" + E(codes[int.Parse(m.Groups[1].Value)]) + "</code>");
+        s = Regex.Replace(s, "\u0001(\\d+)\u0001", m => "<code>" + E(codes[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)]) + "</code>");
         return s;
     }
 

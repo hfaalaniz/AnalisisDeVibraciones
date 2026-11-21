@@ -104,7 +104,7 @@ public sealed class HtmlReport
 
         // Encabezado
         sb.Append("<header>");
-        if (LogoDataUri.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) sb.Append($"<img src=\"{E(LogoDataUri)}\" alt=\"Logo\">");
+        if (LogoDataUri.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) sb.Append(CultureInfo.InvariantCulture, $"<img src=\"{E(LogoDataUri)}\" alt=\"Logo\">");
         sb.Append("<div class=\"t\"><h1>Informe de análisis de vibraciones</h1><div class=\"meta\">");
         var meta = new List<string>();
         if (Company.Length > 0) meta.Add(E(Company));
@@ -119,7 +119,7 @@ public sealed class HtmlReport
         var status = Status;
         string stText = status switch { ReportStatus.Danger => "PELIGRO: intervenir a la brevedad", ReportStatus.Alert => "ALERTA: planificar acciones", _ => "ACEPTABLE: sin acciones urgentes" };
         sb.Append("<h2>Resumen</h2>");
-        sb.Append($"<div class=\"st s{(int)status}\"><b>{stText}</b><span>{E(m.Name)}{(m.Location.Length > 0 ? " · " + E(m.Location) : "")}</span></div>");
+        sb.Append(CultureInfo.InvariantCulture, $"<div class=\"st s{(int)status}\"><b>{stText}</b><span>{E(m.Name)}{(m.Location.Length > 0 ? " · " + E(m.Location) : "")}</span></div>");
         var summary = new List<string>();
         if (Severity != null) summary.Add($"Vibración global {F(Severity.VelocityRmsMmS, "0.00")} mm/s RMS ({E(Severity.Label)}).");
         var top = Findings.OrderByDescending(f => f.Confidence).FirstOrDefault();
@@ -144,8 +144,8 @@ public sealed class HtmlReport
         if (Severity != null)
         {
             sb.Append("<h2>Severidad de la vibración</h2>");
-            sb.Append($"<p><span class=\"big\">{F(Severity.VelocityRmsMmS, "0.00")} mm/s RMS</span> &nbsp; <span class=\"z z{Severity.Zone}\">{E(Severity.Label)}</span></p><p>{E(Severity.Description)}</p>");
-            sb.Append($"<p class=\"muted\">Límites A/B, B/C, C/D: {F(Severity.Limits[0])} / {F(Severity.Limits[1])} / {F(Severity.Limits[2])} mm/s RMS.</p>");
+            sb.Append(CultureInfo.InvariantCulture, $"<p><span class=\"big\">{F(Severity.VelocityRmsMmS, "0.00")} mm/s RMS</span> &nbsp; <span class=\"z z{Severity.Zone}\">{E(Severity.Label)}</span></p><p>{E(Severity.Description)}</p>");
+            sb.Append(CultureInfo.InvariantCulture, $"<p class=\"muted\">Límites A/B, B/C, C/D: {F(Severity.Limits[0])} / {F(Severity.Limits[1])} / {F(Severity.Limits[2])} mm/s RMS.</p>");
         }
 
         if (Figures.Count > 0)
@@ -155,8 +155,8 @@ public sealed class HtmlReport
             {
                 sb.Append("<figure>");
                 if (f.Svg.Length > 0) sb.Append(f.Svg);
-                else if (f.PngDataUri.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) sb.Append($"<img src=\"{E(f.PngDataUri)}\" alt=\"{E(f.Title)}\">");
-                if (f.Caption.Length > 0 || f.Title.Length > 0) sb.Append($"<figcaption>{E(f.Title)}{(f.Caption.Length > 0 ? " — " + E(f.Caption) : "")}</figcaption>");
+                else if (f.PngDataUri.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) sb.Append(CultureInfo.InvariantCulture, $"<img src=\"{E(f.PngDataUri)}\" alt=\"{E(f.Title)}\">");
+                if (f.Caption.Length > 0 || f.Title.Length > 0) sb.Append(CultureInfo.InvariantCulture, $"<figcaption>{E(f.Title)}{(f.Caption.Length > 0 ? " — " + E(f.Caption) : "")}</figcaption>");
                 sb.Append("</figure>");
             }
         }
@@ -167,7 +167,7 @@ public sealed class HtmlReport
         {
             sb.Append("<table><tr><th>Falla probable</th><th>Confianza</th><th>Evidencia</th><th>Recomendación</th></tr>");
             foreach (var f in Findings)
-                sb.Append($"<tr><td><b>{E(f.Title)}</b></td><td>{F(f.Confidence * 100, "0")} %</td><td>{E(f.Evidence)}</td><td>{E(f.Recommendation)}</td></tr>");
+                sb.Append(CultureInfo.InvariantCulture, $"<tr><td><b>{E(f.Title)}</b></td><td>{F(f.Confidence * 100, "0")} %</td><td>{E(f.Evidence)}</td><td>{E(f.Recommendation)}</td></tr>");
             sb.Append("</table>");
         }
 
@@ -178,19 +178,19 @@ public sealed class HtmlReport
             foreach (var kv in Indicators.Features.Where(k => double.IsFinite(k.Value)).OrderBy(k => FeatureKeys.Names.Keys.ToList().IndexOf(k.Key) is var i && i < 0 ? 999 : i))
             {
                 byKey.TryGetValue(kv.Key, out var a);
-                sb.Append($"<tr><td>{E(FeatureKeys.Name(kv.Key))}</td><td>{F(kv.Value, "0.###")}</td><td>{(a != null ? F(a.AlertLimit, "0.###") : "")}</td><td>{(a != null ? F(a.DangerLimit, "0.###") : "")}</td><td>{Level(a?.Level)}</td></tr>");
+                sb.Append(CultureInfo.InvariantCulture, $"<tr><td>{E(FeatureKeys.Name(kv.Key))}</td><td>{F(kv.Value, "0.###")}</td><td>{(a != null ? F(a.AlertLimit, "0.###") : "")}</td><td>{(a != null ? F(a.DangerLimit, "0.###") : "")}</td><td>{Level(a?.Level)}</td></tr>");
             }
             sb.Append("</table>");
         }
 
         foreach (var t in Trends)
         {
-            sb.Append($"<h2>Tendencia · {E(t.Point)}</h2><figure>{t.Svg}<figcaption>{E(FeatureKeys.Name(t.Feature))}{(t.Forecast.Length > 0 ? " — " + E(t.Forecast) : "")}</figcaption></figure>");
+            sb.Append(CultureInfo.InvariantCulture, $"<h2>Tendencia · {E(t.Point)}</h2><figure>{t.Svg}<figcaption>{E(FeatureKeys.Name(t.Feature))}{(t.Forecast.Length > 0 ? " — " + E(t.Forecast) : "")}</figcaption></figure>");
             var on = t.Alarms.Where(a => a.Level != AlarmLevel.Normal).ToList();
             if (on.Count > 0)
             {
                 sb.Append("<table><tr><th>Indicador en alarma (última medición)</th><th>Valor</th><th>Límite</th><th>Estado</th></tr>");
-                foreach (var a in on) sb.Append($"<tr><td>{E(FeatureKeys.Name(a.Feature))}</td><td>{F(a.Value, "0.###")}</td><td>{F(a.Level == AlarmLevel.Danger ? a.DangerLimit : a.AlertLimit, "0.###")}</td><td>{Level(a.Level)}</td></tr>");
+                foreach (var a in on) sb.Append(CultureInfo.InvariantCulture, $"<tr><td>{E(FeatureKeys.Name(a.Feature))}</td><td>{F(a.Value, "0.###")}</td><td>{F(a.Level == AlarmLevel.Danger ? a.DangerLimit : a.AlertLimit, "0.###")}</td><td>{Level(a.Level)}</td></tr>");
                 sb.Append("</table>");
             }
         }
@@ -209,16 +209,16 @@ public sealed class HtmlReport
 
         if (Balancing is { } b && b.Runs.Count > 0)
         {
-            sb.Append($"<h2>Balanceo en {b.Planes} plano{(b.Planes > 1 ? "s" : "")}</h2>");
-            sb.Append($"<p class=\"muted\">Ángulos medidos {(b.AnglesAgainstRotation ? "en sentido contrario al giro" : "en el sentido de giro")} desde la marca de referencia. Lecturas 1X: amplitud pico ∠ fase.</p>");
+            sb.Append(CultureInfo.InvariantCulture, $"<h2>Balanceo en {b.Planes} plano{(b.Planes > 1 ? "s" : "")}</h2>");
+            sb.Append(CultureInfo.InvariantCulture, $"<p class=\"muted\">Ángulos medidos {(b.AnglesAgainstRotation ? "en sentido contrario al giro" : "en el sentido de giro")} desde la marca de referencia. Lecturas 1X: amplitud pico ∠ fase.</p>");
             sb.Append("<table><tr><th>Corrida</th><th>Peso de prueba</th><th>Sensor 1</th>");
             if (b.Planes == 2) sb.Append("<th>Sensor 2</th>");
             sb.Append("<th>rpm</th></tr>");
             foreach (var r in b.Runs)
             {
-                sb.Append($"<tr><td>{E(r.Name)}</td><td>{(r.Trial is { } t ? $"{F(t.Magnitude)} g ∠ {F(t.AngleDeg, "0")}° (plano {r.TrialPlane})" : "—")}</td><td>{P(r.Sensor1)}</td>");
-                if (b.Planes == 2) sb.Append($"<td>{(r.Sensor2 is { } s2 ? P(s2) : "—")}</td>");
-                sb.Append($"<td>{F(r.Rpm, "0")}</td></tr>");
+                sb.Append(CultureInfo.InvariantCulture, $"<tr><td>{E(r.Name)}</td><td>{(r.Trial is { } t ? $"{F(t.Magnitude)} g ∠ {F(t.AngleDeg, "0")}° (plano {r.TrialPlane})" : "—")}</td><td>{P(r.Sensor1)}</td>");
+                if (b.Planes == 2) sb.Append(CultureInfo.InvariantCulture, $"<td>{(r.Sensor2 is { } s2 ? P(s2) : "—")}</td>");
+                sb.Append(CultureInfo.InvariantCulture, $"<td>{F(r.Rpm, "0")}</td></tr>");
             }
             sb.Append("</table>");
             if (b.Corrections.Length > 0)
@@ -228,18 +228,18 @@ public sealed class HtmlReport
                 for (int i = 0; i < b.Corrections.Length; i++)
                 {
                     double perPlane = b.Planes == 2 ? uper / 2 : uper;
-                    sb.Append($"<tr><td>{i + 1}</td><td><b>{KeepText(b)}{F(b.Corrections[i].Magnitude)} g ∠ {F(b.Corrections[i].AngleDeg, "0")}°</b> a {F(m.CorrectionRadiusMm, "0")} mm</td><td>{F(perPlane, "0")} g·mm ({F(perPlane / m.CorrectionRadiusMm)} g a {F(m.CorrectionRadiusMm, "0")} mm)</td></tr>");
+                    sb.Append(CultureInfo.InvariantCulture, $"<tr><td>{i + 1}</td><td><b>{KeepText(b)}{F(b.Corrections[i].Magnitude)} g ∠ {F(b.Corrections[i].AngleDeg, "0")}°</b> a {F(m.CorrectionRadiusMm, "0")} mm</td><td>{F(perPlane, "0")} g·mm ({F(perPlane / m.CorrectionRadiusMm)} g a {F(m.CorrectionRadiusMm, "0")} mm)</td></tr>");
                 }
                 sb.Append("</table>");
                 var pred = b.PredictedResidual();
-                if (pred.Length > 0) sb.Append($"<p>Vibración residual prevista: {string.Join(" · ", pred.Select((p, i) => $"sensor {i + 1}: {F(p.Magnitude, "0.00")}"))}.</p>");
+                if (pred.Length > 0) sb.Append(CultureInfo.InvariantCulture, $"<p>Vibración residual prevista: {string.Join(" · ", pred.Select((p, i) => $"sensor {i + 1}: {F(p.Magnitude, "0.00")}"))}.</p>");
             }
         }
 
         if (Notes.Length > 0) sb.Append("<h2>Observaciones</h2><p>").Append(E(Notes).Replace("\n", "<br>")).Append("</p>");
         if (Signatures)
-            sb.Append($"<div class=\"sign\"><div>{(Technician.Length > 0 ? E(Technician) + "<br>" : "")}Técnico responsable</div><div>{(Client.Length > 0 ? E(Client) + "<br>" : "")}Recibido por (cliente)</div></div>");
-        sb.Append($"<footer>Generado con Análisis de Vibraciones y Balanceo {E(ProductVersion)} — Fabian Alaniz · ElectroNet · <a href=\"https://www.developers-soft.com/\">www.developers-soft.com</a>. Los diagnósticos automáticos son orientativos y deben ser validados por personal calificado.</footer>");
+            sb.Append(CultureInfo.InvariantCulture, $"<div class=\"sign\"><div>{(Technician.Length > 0 ? E(Technician) + "<br>" : "")}Técnico responsable</div><div>{(Client.Length > 0 ? E(Client) + "<br>" : "")}Recibido por (cliente)</div></div>");
+        sb.Append(CultureInfo.InvariantCulture, $"<footer>Generado con Análisis de Vibraciones y Balanceo {E(ProductVersion)} — Fabian Alaniz · ElectroNet · <a href=\"https://www.developers-soft.com/\">www.developers-soft.com</a>. Los diagnósticos automáticos son orientativos y deben ser validados por personal calificado.</footer>");
         sb.Append("</body></html>");
         return sb.ToString();
     }
@@ -254,7 +254,7 @@ public sealed class HtmlReport
 
     private static string KeepText(BalancingSession b) => b.KeepTrialWeights ? "agregar (dejando el de prueba) " : "";
     private static string P(Phasor p) => $"{F(p.Magnitude, "0.00")} ∠ {F(p.AngleDeg, "0")}°";
-    private static void Row(StringBuilder sb, string k, string v) => sb.Append($"<tr><th style=\"width:30%\">{k}</th><td>{v}</td></tr>");
+    private static void Row(StringBuilder sb, string k, string v) => sb.Append(CultureInfo.InvariantCulture, $"<tr><th style=\"width:30%\">{k}</th><td>{v}</td></tr>");
 
     /// <summary>Imagen (PNG/JPG) a data URI para el logo o una figura.</summary>
     public static string ToDataUri(byte[] image)

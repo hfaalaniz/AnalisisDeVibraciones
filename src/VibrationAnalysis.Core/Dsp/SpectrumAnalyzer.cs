@@ -60,7 +60,7 @@ public static class SpectrumAnalyzer
     {
         int n = signal.Count;
         if (n < 8) throw new ArgumentException("Se necesitan al menos 8 muestras.", nameof(signal));
-        if (sampleRate <= 0) throw new ArgumentOutOfRangeException(nameof(sampleRate));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
         double mean = removeMean ? signal.Average() : 0;
         var w = WindowFunctions.Create(window, n);
         double cg = WindowFunctions.CoherentGain(w);
