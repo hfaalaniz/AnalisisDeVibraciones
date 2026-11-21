@@ -34,6 +34,9 @@ namespace VibrationAnalysis.UI
         private const string WebUrl = "https://analisisdevibraciones.pages.dev/";
         private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-AR");
 
+        /// <summary>Versión de la app tomada del ensamblado (sin el hash del commit), p. ej. «3.0.0».</summary>
+        private static string AppVersion => Application.ProductVersion.Split('+')[0];
+
         private readonly Machine machine = new Machine { Name = "Ventilador de prueba", Rpm = 1500, DiameterMm = 450, LengthMm = 220, CorrectionRadiusMm = 200, MassKg = 38 };
         private readonly SimulatorSettings simSettings = new SimulatorSettings();
         private RotorSimulator sim;
@@ -114,7 +117,8 @@ namespace VibrationAnalysis.UI
 
         public MainForm()
         {
-            Text = "Análisis de Vibraciones y Balanceo · Fabian Alaniz – ElectroNet";
+            Text = $"Análisis de Vibraciones y Balanceo {AppVersion} · Fabian Alaniz – ElectroNet";
+            HtmlReport.ProductVersion = AppVersion;
             Font = new Font("Segoe UI", 9.5f);
             MinimumSize = new Size(1100, 720);
             Size = new Size(1360, 860);
@@ -179,7 +183,15 @@ namespace VibrationAnalysis.UI
             help.DropDownItems.Add("Versión web y manual", null, (s, e) => OpenUrl(WebUrl));
             help.DropDownItems.Add("Carpeta de registros (logs)", null, (s, e) => OpenUrl(Path.GetDirectoryName(LogManager.Instance.LogFilePath)));
             help.DropDownItems.Add("Acerca de…", null, (s, e) => MessageBox.Show(this,
-                "Análisis de Vibraciones y Balanceo 2.0\n\nAutor: Fabian Alaniz – ElectroNet\n+54 9 351 284-8802 · www.developers-soft.com\n\nFFT, severidad ISO 10816, diagnóstico de fallas y balanceo de campo en 1 y 2 planos por coeficientes de influencia (ISO 1940/21940).",
+                $"Análisis de Vibraciones y Balanceo {AppVersion}\n\nAutor: Fabian Alaniz – ElectroNet\n+54 9 351 284-8802 · www.developers-soft.com\n\n" +
+                "• Espectro, severidad ISO 20816 y diagnóstico de fallas (desbalance, desalineación, holgura, rodamientos por envolvente, engranajes).\n" +
+                "• Análisis avanzado: PSD, zoom FFT, cepstrum, envolvente, curtosis espectral.\n" +
+                "• Órdenes y transitorios: Bode, Nyquist, cascada, espectrograma, órbitas y velocidades críticas.\n" +
+                "• Tendencias y alarmas con pronóstico, rutas de medición.\n" +
+                "• Corriente del motor (MCSA), ultrasonido y temperatura.\n" +
+                "• Sensores USB/WiFi (ESP32), placa de sonido y NI-DAQmx con IEPE; MQTT y Modbus TCP/RTU.\n" +
+                "• Balanceo de campo en 1 y 2 planos por coeficientes de influencia (ISO 1940/21940).\n\n" +
+                $"Versión completa: {Application.ProductVersion}",
                 "Acerca de", MessageBoxButtons.OK, MessageBoxIcon.Information));
             m.Items.AddRange(new ToolStripItem[] { file, view, help });
             return m;
