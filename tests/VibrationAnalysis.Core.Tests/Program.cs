@@ -684,6 +684,62 @@ t.Run("Puente con la planta: registros, JSON y mensajes de sensores", () =>
     T.Eq(PlantGateway.TopicPart("Lado acople / H"), "Lado_acople___H", "tema seguro");
 });
 
+// ───────────── Otras magnitudes: corriente del motor, ultrasonido, temperatura ─────────────
+t.Run("MCSA: barras rotas, excentricidad, armónicos y deslizamiento", () =>
+{
+    double fs = 5000;
+    var broken = MotorCurrentAnalysis.Simulate(fs, 20, 50, 10, 4, 1455, brokenBarDb: 38, eccentricityDb: 45, fifthPercent: 4, noiseA: 0.002);
+    var m = MotorCurrentAnalysis.Analyze(broken, fs, 50, 4, 1455);
+    T.Near(m.LineHz, 50, 0.01, "red"); T.Near(m.Slip, 0.03, 1e-6, "deslizamiento");
+    T.Near(m.LowerSidebandDb, 38, 1.5, "banda inferior"); T.Eq(m.RotorSeverity, 3, "barras fisuradas");
+    T.Near(m.EccentricityDb, 45, 1.5, "excentricidad"); T.Near(m.ThdPercent, 4, 0.3, "THD");
+    T.Near(m.Harmonics.First(h => h.Order == 5).Percent, 4, 0.3, "5.º armónico");
+    var healthy = MotorCurrentAnalysis.Analyze(MotorCurrentAnalysis.Simulate(fs, 20, 50, 10, 4, 1455, noiseA: 0.002), fs, 50, 4, 1455);
+    T.True(healthy.LowerSidebandDb > 54 && healthy.RotorSeverity == 0, $"rotor sano ({healthy.LowerSidebandDb:0} dB)");
+    var est = MotorCurrentAnalysis.Analyze(MotorCurrentAnalysis.Simulate(fs, 20, 50, 10, 4, 1455, eccentricityDb: 40, noiseA: 0.002), fs, 50, 4, 0);
+    T.Near(est.Slip, 0.03, 0.002, "deslizamiento estimado sin rpm");
+    T.Near(MotorCurrentAnalysis.Unbalance(10, 10.5, 9.5), 5, 1e-9, "desbalance NEMA");
+});
+t.Run("Ultrasonido: dBµV, heterodinado y criterios", () =>
+{
+    double fs = 192000;
+    var x = Enumerable.Range(0, 96000).Select(i => 1e-3 * Math.Sin(2 * Math.PI * 40000 * i / fs) + 1.0 * Math.Sin(2 * Math.PI * 50 * i / fs)).ToArray();
+    var u = UltrasoundAnalysis.Analyze(x, fs);
+    T.Near(u.RmsDbuV, 20 * Math.Log10(1e-3 / Math.Sqrt(2) / 1e-6), 0.3, "nivel en banda (sin los 50 Hz)");
+    var audio = UltrasoundAnalysis.Heterodyne(x, fs, 38000, 8000);
+    var sp = SpectrumAnalyzer.Compute(audio, 8000);
+    T.Near(SpectralFeatures.Peaks(sp, 1, 100)[0].Frequency, 2000, 5, "40 kHz se escucha a 2 kHz");
+    T.Eq(UltrasoundAnalysis.Condition(10).Level, 1, "lubricar"); T.Eq(UltrasoundAnalysis.Condition(20).Level, 3, "falla");
+    try { UltrasoundAnalysis.Analyze(x, 48000); throw new Exception("debía fallar"); } catch (ArgumentException) { }
+    var wav = WavWriter.Mono16(audio, 8000);
+    T.Eq(wav.Length, 44 + audio.Length * 2, "WAV"); T.Eq(WavRecordingReader.Read(wav, 1, VibrationUnit.VoltageV).SampleRate, 8000.0, "WAV legible");
+});
+t.Run("Alarmas en dB: diferencia con la base e indicadores donde menos es peor", () =>
+{
+    var pt = new MeasurementPoint();
+    MeasurementRecord R(string k, double v, int d) => new() { PointId = pt.Id, Timestamp = new DateTime(2026, 1, 1).AddDays(d), Features = { [k] = v } };
+    var hist = new List<MeasurementRecord> { R(FeatureKeys.UltrasoundDb, 40, 0), R(FeatureKeys.UltrasoundDb, 41, 1), R(FeatureKeys.UltrasoundDb, 39, 2) };
+    AlarmLevel L(MeasurementRecord r) => TrendAnalysis.Evaluate(r, pt, MachineClass.Iso10816_3_Group2Rigid, hist).First().Level;
+    T.Eq(L(R(FeatureKeys.UltrasoundDb, 45, 9)), AlarmLevel.Normal, "+5 dB"); T.Eq(L(R(FeatureKeys.UltrasoundDb, 49, 9)), AlarmLevel.Alert, "+9 dB");
+    T.Eq(L(R(FeatureKeys.UltrasoundDb, 57, 9)), AlarmLevel.Danger, "+17 dB");
+    T.Eq(L(R(FeatureKeys.BrokenBarDb, 50, 9)), AlarmLevel.Normal, "rotor bien"); T.Eq(L(R(FeatureKeys.BrokenBarDb, 40, 9)), AlarmLevel.Alert, "rotor alerta");
+    T.Eq(L(R(FeatureKeys.BrokenBarDb, 30, 9)), AlarmLevel.Danger, "rotor peligro"); T.Eq(L(R(FeatureKeys.Temperature, 97, 9)), AlarmLevel.Danger, "temperatura");
+});
+t.Run("Indicadores de canales de corriente (3 fases) y unidades eléctricas", () =>
+{
+    double fs = 5000;
+    var ia = MotorCurrentAnalysis.Simulate(fs, 12, 50, 10, 4, 1455, brokenBarDb: 40, phaseDeg: 0);
+    var ib = MotorCurrentAnalysis.Simulate(fs, 12, 50, 10.8, 4, 1455, phaseDeg: -120, seed: 2);
+    var ic = MotorCurrentAnalysis.Simulate(fs, 12, 50, 9.6, 4, 1455, phaseDeg: 120, seed: 3);
+    var rec = new Recording(fs, new[] { new Channel("R", VibrationUnit.CurrentA, ia), new Channel("S", VibrationUnit.CurrentA, ib), new Channel("T", VibrationUnit.CurrentA, ic) }, null, 1455, "prueba");
+    var m = FeatureExtractor.Extract(rec, 0, new Machine { Rpm = 1455, Poles = 4, LineFrequencyHz = 50 });
+    T.Near(m.Get(FeatureKeys.CurrentRms), 10 / Math.Sqrt(2), 0.05, "corriente RMS");
+    T.Near(m.Get(FeatureKeys.CurrentUnbalance), MotorCurrentAnalysis.Unbalance(10, 10.8, 9.6), 0.3, "desbalance");
+    T.Near(m.Get(FeatureKeys.BrokenBarDb), 40, 1.5, "barras"); T.True(double.IsNaN(m.Get(FeatureKeys.VelocityRms)), "sin indicadores de vibración");
+    T.Eq(CsvRecordingReader.ParseUnit("A"), VibrationUnit.CurrentA, "unidad A");
+    T.Near(SignalTools.Convert(ia, fs, VibrationUnit.CurrentA, VibrationUnit.VelocityMmS)[100], ia[100], 0, "la corriente no se convierte");
+});
+
 int failed = t.Summary();
 var emitIdx = Array.IndexOf(args, "--emit");
 if (emitIdx >= 0 && emitIdx + 1 < args.Length) Vectors.Emit(args[emitIdx + 1]);

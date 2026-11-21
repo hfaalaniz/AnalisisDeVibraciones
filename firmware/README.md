@@ -65,6 +65,16 @@ Con `USE_MQTT 1` además publica cada `MQTT_PERIOD_S` segundos, aunque nadie est
 ```
 Necesita la biblioteca **PubSubClient** (Administrador de bibliotecas). La app de Windows (pestaña 7) recibe estos mensajes, los muestra y, si se asocia el sensor a un punto, los guarda en la base de tendencias con sus alarmas.
 
+## Temperatura (opcional)
+
+Con `USE_MLX90614 1` se lee un termómetro infrarrojo **MLX90614** por I2C (SDA 21 / SCL 22; en ESP32-S3, 1 / 2) apuntado a la tapa del rodamiento. La temperatura sale en la respuesta a `INFO` y en el JSON de MQTT (`"temperatura": 56.25`), y la app la guarda como indicador con alarma (por defecto 80 °C alerta, 95 °C peligro).
+
+## Corriente del motor y ultrasonido
+
+No necesitan firmware: se conectan a la **placa de sonido o al DAQ** (pestaña 2 → *Configurar equipo…*):
+- **Pinza de corriente** con salida de tensión (mV/A) en una o tres fases → análisis MCSA (barras del rotor, excentricidad, THD, desbalance). Registros de 10 s o más.
+- **Sensor de ultrasonido** (40 kHz) → placa de sonido a 192 kHz o DAQ rápido: nivel en dBµV y audio heterodinado para escuchar.
+
 ## Montaje
 
 - Fijar el acelerómetro con **espárrago o base magnética** sobre la tapa del cojinete. Con cinta o adhesivo blando se pierden las frecuencias altas.

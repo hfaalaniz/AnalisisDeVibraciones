@@ -19,6 +19,8 @@ public enum AlarmKind
     Statistical,
     /// <summary>Zonas de severidad ISO 20816 de la clase de máquina (B/C = alerta, C/D = peligro). Solo para velocidad RMS.</summary>
     Iso,
+    /// <summary>Diferencia con la media de la línea base (para indicadores en dB, como el ultrasonido: +8 lubricar, +16 falla).</summary>
+    BaselineDelta,
 }
 
 public sealed class AlarmRule
@@ -108,6 +110,17 @@ public static class FeatureKeys
     public const string Bpfi = "env_bpfi";
     public const string Gmf = "gmf";
     public const string Temperature = "temperatura";
+    public const string CurrentRms = "corriente_rms";
+    public const string CurrentThd = "corriente_thd";
+    public const string CurrentUnbalance = "corriente_desbalance";
+    public const string BrokenBarDb = "mcsa_barras_db";
+    public const string EccentricityDb = "mcsa_excentricidad_db";
+    public const string Slip = "deslizamiento";
+    public const string UltrasoundDb = "us_db";
+    public const string UltrasoundCrest = "us_cresta";
+
+    /// <summary>Indicadores en los que un valor más bajo es peor (dB por debajo de la línea).</summary>
+    public static bool LowerIsWorse(string key) => key is BrokenBarDb or EccentricityDb;
 
     public static readonly IReadOnlyDictionary<string, string> Names = new Dictionary<string, string>
     {
@@ -128,6 +141,14 @@ public static class FeatureKeys
         [Bpfi] = "Envolvente en BPFI (g pico)",
         [Gmf] = "Frecuencia de engrane (mm/s pico)",
         [Temperature] = "Temperatura (°C)",
+        [CurrentRms] = "Corriente RMS (A)",
+        [CurrentThd] = "THD de corriente (%)",
+        [CurrentUnbalance] = "Desbalance de corrientes (%)",
+        [BrokenBarDb] = "MCSA barras del rotor (dB bajo la línea)",
+        [EccentricityDb] = "MCSA excentricidad (dB bajo la línea)",
+        [Slip] = "Deslizamiento (%)",
+        [UltrasoundDb] = "Ultrasonido RMS (dBµV)",
+        [UltrasoundCrest] = "Ultrasonido factor de cresta",
     };
 
     public static string Name(string key) => Names.TryGetValue(key, out var n) ? n : key;
@@ -148,5 +169,9 @@ public static class AlarmDefaults
         new AlarmRule(FeatureKeys.Kurtosis, AlarmKind.Absolute, 4, 6),
         new AlarmRule(FeatureKeys.CrestFactor, AlarmKind.Absolute, 5, 7),
         new AlarmRule(FeatureKeys.AccelerationRms, AlarmKind.Statistical, 3, 6),
+        new AlarmRule(FeatureKeys.Temperature, AlarmKind.Absolute, 80, 95),
+        new AlarmRule(FeatureKeys.BrokenBarDb, AlarmKind.Absolute, 42, 36),
+        new AlarmRule(FeatureKeys.CurrentUnbalance, AlarmKind.Absolute, 5, 10),
+        new AlarmRule(FeatureKeys.UltrasoundDb, AlarmKind.BaselineDelta, 8, 16),
     };
 }

@@ -39,6 +39,7 @@ namespace VibrationAnalysis.UI
         public int ClientType { get; set; }
         public double ClientScale { get; set; } = 1;
         public bool ClientAsRpm { get; set; }
+        public bool ClientAsTemperature { get; set; }
     }
 
     public sealed partial class MainForm
@@ -55,7 +56,7 @@ namespace VibrationAnalysis.UI
         private readonly System.Windows.Forms.Timer netTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         private TextBox txtMqttHost, txtMqttUser, txtMqttPass, txtPrefix, txtClientAddr;
         private NumericUpDown nudMqttPort, nudModbusPort, nudClientBaud, nudClientUnit, nudClientReg, nudClientScale;
-        private CheckBox chkPublish, chkSubscribe, chkStoreSensors, chkClientRpm, chkClientPoll;
+        private CheckBox chkPublish, chkSubscribe, chkStoreSensors, chkClientRpm, chkClientTemp, chkClientPoll;
         private ComboBox cmbClientMode, cmbClientFunc, cmbClientType;
         private Button btnMqtt, btnModbus;
         private Label lblMqtt, lblModbus, lblClient;
@@ -171,13 +172,16 @@ namespace VibrationAnalysis.UI
             cmbClientType = Combo(new[] { "uint16", "int16", "float32 ABCD", "float32 CDAB" }, 110); cmbClientType.SelectedIndex = Math.Clamp(net.ClientType, 0, 3);
             nudClientScale = Nud(-100000, 100000, (decimal)net.ClientScale, 4); nudClientScale.Width = 85;
             chkClientRpm = new CheckBox { Text = "Usar como velocidad de giro (rpm)", AutoSize = true, Checked = net.ClientAsRpm, Margin = new Padding(6, 6, 6, 0) };
+            chkClientTemp = new CheckBox { Text = "Usar como temperatura (°C) al guardar", AutoSize = true, Checked = net.ClientAsTemperature, Margin = new Padding(6, 6, 6, 0) };
+            chkClientRpm.CheckedChanged += (s, e) => { if (chkClientRpm.Checked) chkClientTemp.Checked = false; };
+            chkClientTemp.CheckedChanged += (s, e) => { if (chkClientTemp.Checked) chkClientRpm.Checked = false; };
             chkClientPoll = new CheckBox { Text = "Leer cada 2 s", AutoSize = true, Margin = new Padding(6, 6, 6, 0) };
             lblClient = new Label { AutoSize = true, Margin = new Padding(6, 8, 0, 0), Font = new Font("Consolas", 10f, FontStyle.Bold) };
             fC.Controls.AddRange(new Control[]
             {
                 Lbl("Modo:"), cmbClientMode, Lbl("Dirección (IP:puerto o COMx):"), txtClientAddr, Lbl("Baudios:"), nudClientBaud, Lbl("Unidad:"), nudClientUnit,
                 Lbl("Función:"), cmbClientFunc, Lbl("Registro (base 0):"), nudClientReg, Lbl("Tipo:"), cmbClientType, Lbl("Escala:"), nudClientScale,
-                chkClientRpm, chkClientPoll, Btn("Leer", async (s, e) => await ReadClient(true)), lblClient,
+                chkClientRpm, chkClientTemp, chkClientPoll, Btn("Leer", async (s, e) => await ReadClient(true)), lblClient,
             });
             gC.Controls.Add(fC);
 
@@ -223,7 +227,7 @@ namespace VibrationAnalysis.UI
             net.StoreSensorMessages = chkStoreSensors.Checked; net.ModbusPort = (int)nudModbusPort.Value;
             net.ClientMode = cmbClientMode.SelectedIndex == 1 ? "RTU" : "TCP"; net.ClientAddress = txtClientAddr.Text.Trim(); net.ClientBaud = (int)nudClientBaud.Value;
             net.ClientUnit = (int)nudClientUnit.Value; net.ClientFunction = cmbClientFunc.SelectedIndex == 1 ? 4 : 3; net.ClientRegister = (int)nudClientReg.Value;
-            net.ClientType = cmbClientType.SelectedIndex; net.ClientScale = (double)nudClientScale.Value; net.ClientAsRpm = chkClientRpm.Checked;
+            net.ClientType = cmbClientType.SelectedIndex; net.ClientScale = (double)nudClientScale.Value; net.ClientAsRpm = chkClientRpm.Checked; net.ClientAsTemperature = chkClientTemp.Checked;
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(NetPath));
@@ -430,6 +434,11 @@ namespace VibrationAnalysis.UI
                     double val = raw * net.ClientScale;
                     lblClient.Text = $"= {val.ToString("0.###", Es)}  (crudo {raw.ToString("0.###", Es)}) · {DateTime.Now:HH:mm:ss}";
                     lblClient.ForeColor = Color.FromArgb(14, 124, 134);
+                    if (net.ClientAsTemperature && nudTemp != null)
+                    {
+                        nudTemp.Value = (decimal)Math.Clamp(val, (double)nudTemp.Minimum, (double)nudTemp.Maximum);
+                        chkTemp.Checked = true;
+                    }
                     if (net.ClientAsRpm && val > 0)
                     {
                         machine.Rpm = val;

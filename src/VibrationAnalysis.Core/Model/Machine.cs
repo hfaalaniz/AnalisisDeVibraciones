@@ -34,6 +34,8 @@ public sealed class Machine
     public int Blades { get; set; }
     /// <summary>Dientes del engranaje montado en el eje (0 = sin engranaje).</summary>
     public int GearTeeth { get; set; }
+    /// <summary>Polos del motor de inducción (para MCSA: velocidad sincrónica = 120·f/polos).</summary>
+    public int Poles { get; set; } = 4;
     public bool VerticalShaft { get; set; }
     public double CorrectionRadiusMm { get; set; } = 140;
     public double BalanceGrade { get; set; } = 6.3;
