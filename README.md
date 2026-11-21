@@ -11,7 +11,7 @@ Autor: **Fabian Alaniz – ElectroNet** · +54 9 351 284-8802 · [www.developers
 
 | Área | Qué hace |
 |---|---|
-| Adquisición | Simulador de rotor (con fallas configurables), archivos CSV/WAV, sensor USB en vivo (ESP32 + ADXL345 + tacómetro) e ingreso manual de lecturas |
+| Adquisición | Simulador de rotor (con fallas configurables), archivos CSV/WAV, sensor USB en vivo (ESP32 con hasta 4 acelerómetros ADXL345 / ADXL355 / IIS3DWB, triaxial opcional, protocolo binario con CRC hasta 26,7 kHz + tacómetro) e ingreso manual de lecturas |
 | Análisis | FFT (Hanning, flat-top, Hamming, rectangular), forma de onda, conversión aceleración ↔ velocidad ↔ desplazamiento, RMS, pico, factor de cresta, curtosis, lectura 1X (amplitud ∠ fase) referida al tacómetro |
 | Análisis avanzado (escritorio) | Espectro promediado (Welch: lineal, exponencial, retención de picos), PSD, zoom FFT, envolvente/demodulación con banda sugerida por curtosis espectral, cepstrum (familias de armónicos y bandas laterales), filtros Butterworth de fase cero, ventanas Blackman-Harris y Kaiser, rótulo automático de picos (1X…, BPFO/BPFI/BSF/FTF, GMF y bandas laterales, álabes, red) y exportación CSV/PNG |
 | Órdenes y transitorios (escritorio) | Remuestreo angular con tacómetro, espectro de órdenes, seguimiento de órdenes en arranques y paradas (Bode y Nyquist), velocidades críticas con factor Q (media potencia, API 684), cascada (waterfall), espectrograma y órbita X-Y filtrada 1X con precesión y parámetros de la elipse |

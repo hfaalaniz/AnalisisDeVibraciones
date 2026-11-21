@@ -53,3 +53,25 @@ jobs:
         run: dotnet run --project tests/VibrationAnalysis.Core.Tests -c Release -- --emit web/tests/vectors.json
       - name: Pruebas del motor web (y paridad con C#)
         run: node --test web/tests/*.test.mjs
+
+  firmware:
+    name: Firmware ESP32 (compilación)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Núcleo Arduino-ESP32
+        env:
+          URL: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+        run: |
+          arduino-cli core update-index --additional-urls "$URL"
+          arduino-cli core install esp32:esp32 --additional-urls "$URL"
+      - name: Compilar sensor de 1–2 canales (v1)
+        run: arduino-cli compile --fqbn esp32:esp32:esp32 firmware/esp32_vibraciones
+      - name: Compilar multicanal (ADXL345, ADXL355, IIS3DWB · ESP32 y ESP32-S3)
+        run: |
+          set -e
+          for t in 1 2 3; do
+            arduino-cli compile --fqbn esp32:esp32:esp32 --build-property "compiler.cpp.extra_flags=-DSENSOR_TYPE=$t" firmware/esp32_multicanal
+          done
+          arduino-cli compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc --build-property "compiler.cpp.extra_flags=-DSENSOR_TYPE=3" firmware/esp32_multicanal

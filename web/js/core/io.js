@@ -223,49 +223,109 @@ export function parseWav(buffer, { scale = 1, unit = 'g', tachChannel = -1, rpm 
   return new Recording(rate, channels, tachChannel >= 0 && tachChannel < ch ? out[tachChannel] : null, rpm, 'WAV');
 }
 
-// ── Protocolo serie (ver firmware/README) ──
+// ── Protocolo serie (ver firmware/README): texto v1 o binario v2 con CRC ──
+export function crc16(bytes, start = 0, end = bytes.length) {
+  let crc = 0xffff;
+  for (let i = start; i < end; i++) {
+    crc ^= bytes[i] << 8;
+    for (let k = 0; k < 8; k++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+  }
+  return crc;
+}
+
 export class SerialStreamParser {
-  constructor() { this.fs = 0; this.ch = 1; this.unit = 'g'; this.hasTach = false; this.buf = Array.from({ length: 9 }, () => []); this.pending = ''; this.maxSamples = 65536; }
+  constructor() {
+    this.fs = 0; this.ch = 1; this.unit = 'g'; this.hasTach = false; this.binary = false; this.scale = 1; this.sensor = ''; this.names = [];
+    this.buf = Array.from({ length: 17 }, () => []); this.raw = []; this.maxSeconds = 30;
+    this.framesOk = 0; this.crcErrors = 0; this.lostFrames = 0; this.lastSeq = -1; this.lastMessage = '';
+  }
   get count() { return this.buf[0].length; }
-  feed(chunk) {
-    this.pending += chunk;
-    let nl;
-    while ((nl = this.pending.indexOf('\n')) >= 0) {
-      const line = this.pending.slice(0, nl).trim();
-      this.pending = this.pending.slice(nl + 1);
-      this.feedLine(line);
+  get status() {
+    if (!(this.fs > 0)) return 'esperando cabecera #VA…';
+    return `${this.binary ? 'binario v2' : 'texto v1'} · ${this.ch} canal(es) · ${Math.round(this.fs)} Hz${this.sensor ? ' · ' + this.sensor : ''}` +
+      (this.binary ? ` · tramas ${this.framesOk}, CRC mal ${this.crcErrors}, perdidas ${this.lostFrames}` : '');
+  }
+  feed(chunk) { this.feedBytes(new TextEncoder().encode(chunk)); }
+  feedBytes(bytes) {
+    for (const b of bytes) this.raw.push(b);
+    const r = this.raw;
+    let pos = 0;
+    const indexOf = (v, from) => { for (let i = from; i < r.length; i++) if (r[i] === v) return i; return -1; };
+    const lineAt = (a, b) => new TextDecoder().decode(Uint8Array.from(r.slice(a, b))).trim();
+    while (pos < r.length) {
+      if (this.binary) {
+        if (r[pos] === 35 && pos + 2 < r.length && r[pos + 1] === 86 && r[pos + 2] === 65) {   // "#VA": nueva cabecera
+          const nl = indexOf(10, pos); if (nl < 0) break;
+          this.feedLine(lineAt(pos, nl)); pos = nl + 1; continue;
+        }
+        if (r[pos] !== 0xa5 || (pos + 1 < r.length && r[pos + 1] !== 0x5a)) { pos++; continue; }
+        if (pos + 7 > r.length) break;
+        const n = r[pos + 4] | (r[pos + 5] << 8), ch = r[pos + 6];
+        if (ch !== this.ch || n === 0 || n > 4096) { pos++; this.crcErrors++; continue; }
+        const tb = (n + 7) >> 3, len = 7 + n * ch * 2 + tb + 2;
+        if (pos + len > r.length) break;
+        const crc = r[pos + len - 2] | (r[pos + len - 1] << 8);
+        if (crc16(r, pos + 2, pos + len - 2) !== crc) { pos++; this.crcErrors++; continue; }
+        const seq = r[pos + 2] | (r[pos + 3] << 8);
+        if (this.lastSeq >= 0) { const gap = (seq - this.lastSeq - 1 + 65536) % 65536; if (gap > 0 && gap < 30000) this.lostFrames += gap; }
+        this.lastSeq = seq;
+        let o = pos + 7;
+        for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++, o += 2) { let v = r[o] | (r[o + 1] << 8); if (v & 0x8000) v -= 0x10000; this.buf[c].push(v * this.scale); }
+        if (this.hasTach) for (let i = 0; i < n; i++) this.buf[ch].push((r[o + (i >> 3)] >> (i & 7)) & 1);
+        this.framesOk++;
+        pos += len;
+      } else {
+        const nl = indexOf(10, pos);
+        if (nl < 0) { if (r.length - pos > 4096) pos = r.length; break; }
+        this.feedLine(lineAt(pos, nl)); pos = nl + 1;
+      }
     }
+    r.splice(0, Math.min(pos, r.length));
+    this.trim();
   }
   feedLine(line) {
     if (!line) return;
     if (/^#VA/i.test(line)) {
-      for (const kv of line.slice(3).trim().split(/\s+/)) {
-        const [k, v] = kv.split('=');
-        if (v === undefined) continue;
+      const v2 = /^#VA2/i.test(line);
+      this.ch = 1; this.hasTach = false; this.scale = 1; this.sensor = ''; this.names = []; this.lastSeq = -1;
+      for (const kv of line.slice(v2 ? 4 : 3).trim().split(/\s+/)) {
+        const eq = kv.indexOf('='); if (eq < 0) continue;
+        const k = kv.slice(0, eq).toLowerCase(), v = kv.slice(eq + 1);
         if (k === 'fs') this.fs = +v;
-        else if (k === 'ch') this.ch = Math.max(1, Math.min(8, +v));
+        else if (k === 'ch') this.ch = Math.max(1, Math.min(16, +v));
         else if (k === 'unit') this.unit = parseUnit(v) || this.unit;
         else if (k === 'tach') this.hasTach = v === '1';
+        else if (k === 'scale') this.scale = +v;
+        else if (k === 'sensor') this.sensor = v;
+        else if (k === 'names') this.names = v.split(',');
       }
+      this.binary = v2;
       this.buf.forEach((b) => (b.length = 0));
       return;
     }
-    if (line.startsWith('#')) return;
+    if (line.startsWith('#')) { this.lastMessage = line.replace(/^#\s*/, ''); return; }
+    if (this.binary) return;
     const cells = line.split(',');
     const need = this.ch + (this.hasTach ? 1 : 0);
     if (cells.length < need) return;
     const vals = cells.slice(0, need).map(Number);
     if (vals.some((v) => !isFinite(v))) return;
-    vals.forEach((v, i) => { this.buf[i].push(v); if (this.buf[i].length > this.maxSamples) this.buf[i].shift(); });
+    vals.forEach((v, i) => this.buf[i].push(v));
   }
-  clear() { this.buf.forEach((b) => (b.length = 0)); this.pending = ''; }
+  trim() {
+    if (!(this.fs > 0)) return;
+    const max = Math.floor(this.maxSeconds * this.fs), extra = this.buf[0].length - max;
+    if (extra < max / 5) return;
+    this.buf.forEach((b) => b.splice(0, Math.min(extra, b.length)));
+  }
+  clear() { this.buf.forEach((b) => (b.length = 0)); this.raw = []; this.lastSeq = -1; this.framesOk = this.crcErrors = this.lostFrames = 0; }
   toRecording(rpm = 0, last = 0) {
     if (!(this.fs > 0)) throw new Error('No se recibió la cabecera #VA con la frecuencia de muestreo.');
-    let n = Math.min(...this.buf.slice(0, this.ch).map((b) => b.length));
+    const n = Math.min(...this.buf.slice(0, this.ch + (this.hasTach ? 1 : 0)).map((b) => b.length));
     const start = last > 0 && n > last ? n - last : 0;
     const take = (b) => Float64Array.from(b.slice(start, n));
-    const channels = Array.from({ length: this.ch }, (_, i) => ({ name: `Sensor ${i + 1}`, unit: this.unit, data: take(this.buf[i]) }));
-    return new Recording(this.fs, channels, this.hasTach ? take(this.buf[this.ch]) : null, rpm, 'Puerto serie');
+    const channels = Array.from({ length: this.ch }, (_, i) => ({ name: this.names[i] || `Sensor ${i + 1}`, unit: this.unit, data: take(this.buf[i]) }));
+    return new Recording(this.fs, channels, this.hasTach ? take(this.buf[this.ch]) : null, rpm, this.sensor ? 'Sensor ' + this.sensor : 'Puerto serie');
   }
 }
 
