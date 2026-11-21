@@ -13,8 +13,9 @@ Autor: **Fabian Alaniz – ElectroNet** · +54 9 351 284-8802 · [www.developers
 |---|---|
 | Adquisición | Simulador de rotor (con fallas configurables), archivos CSV/WAV, sensor USB en vivo (ESP32 + ADXL345 + tacómetro) e ingreso manual de lecturas |
 | Análisis | FFT (Hanning, flat-top, Hamming, rectangular), forma de onda, conversión aceleración ↔ velocidad ↔ desplazamiento, RMS, pico, factor de cresta, curtosis, lectura 1X (amplitud ∠ fase) referida al tacómetro |
+| Análisis avanzado (escritorio) | Espectro promediado (Welch: lineal, exponencial, retención de picos), PSD, zoom FFT, envolvente/demodulación con banda sugerida por curtosis espectral, cepstrum (familias de armónicos y bandas laterales), filtros Butterworth de fase cero, ventanas Blackman-Harris y Kaiser, rótulo automático de picos (1X…, BPFO/BPFI/BSF/FTF, GMF y bandas laterales, álabes, red) y exportación CSV/PNG |
 | Severidad | Velocidad RMS 10–1000 Hz según ISO 10816-1 (clases I–IV) e ISO 10816-3 (grupos 1 y 2, base rígida o flexible), zonas A–D |
-| Diagnóstico | Desbalance, desalineación, holgura mecánica, remolino de aceite, defectos de rodamiento (BPFO, BPFI, BSF), paso de álabes y problemas eléctricos (2× red) |
+| Diagnóstico | Desbalance, desalineación, holgura mecánica, remolino de aceite, defectos de rodamiento (BPFO, BPFI, BSF, FTF; confirmados por envolvente automática), engranajes (GMF con bandas laterales a ±1X), paso de álabes y problemas eléctricos (2× red) |
 | Balanceo | Flujo guiado: original → peso de prueba (plano 1, plano 2) → corrección → verificación y ajuste (trim). Control de calidad de la corrida de prueba, número de condición en 2 planos, opción de dejar los pesos de prueba, ángulos a favor o en contra del giro |
 | Herramientas | Peso de prueba sugerido, reparto entre posiciones fijas (álabes), profundidad de perforación, desbalance admisible ISO 1940 (grado G) y desbalance residual estimado |
 | Informe | HTML imprimible o PDF con máquina, severidad, diagnóstico, corridas y correcciones. Proyectos `.vaproj` compatibles entre la web y Windows |
