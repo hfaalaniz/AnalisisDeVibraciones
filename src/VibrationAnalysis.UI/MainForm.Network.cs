@@ -202,7 +202,7 @@ namespace VibrationAnalysis.UI
             netTimer.Tick += async (s, e) =>
             {
                 if (modbus.IsRunning) { PlantGateway.Heartbeat(modbus); lblModbus.Text = $"Escuchando en el puerto {modbus.Port} · clientes {modbus.Clients} · pedidos {modbus.Requests}"; }
-                if (mqtt.IsConnected) lblMqtt.Text = $"Conectado · enviados {mqtt.Sent} · recibidos {mqtt.Received}";
+                if (mqtt.IsConnected) lblMqtt.Text = $"Conectado · enviados {mqtt.Sent} · recibidos {mqtt.Received}" + (lastMqttNote.Length > 0 ? " · " + lastMqttNote : "");
                 if (chkClientPoll.Checked && DateTime.Now.Second % 2 == 0) await ReadClient(false);
             };
             netTimer.Start();
@@ -250,11 +250,20 @@ namespace VibrationAnalysis.UI
             finally { btnMqtt.Enabled = true; }
         }
 
+        private string lastMqttNote = "";
+
         private void OnMqttMessage(string topic, byte[] payload)
         {
-            if (!MqttCodec.TopicMatches($"{Prefix}/+/indicadores", topic)) return;
-            var parsed = PlantGateway.ParseSensorMessage(Encoding.UTF8.GetString(payload));
-            if (parsed == null) return;
+            string text = Encoding.UTF8.GetString(payload);
+            if (!MqttCodec.TopicMatches($"{Prefix}/+/indicadores", topic)) { lastMqttNote = $"tema ignorado: {topic}"; return; }
+            var parsed = PlantGateway.ParseSensorMessage(text);
+            if (parsed == null)
+            {
+                lastMqttNote = $"mensaje no válido en {topic}: {(text.Length > 60 ? text[..60] + "…" : text)} (se espera JSON con \"id\")";
+                LogManager.Instance.LogError("MQTT: " + lastMqttNote);
+                return;
+            }
+            lastMqttNote = $"último: {topic} {DateTime.Now:HH:mm:ss}";
             var (id, f, rpm) = parsed.Value;
             sensorLast[id] = (DateTime.Now, f, rpm);
             RefreshSensorList();
