@@ -16,7 +16,7 @@ namespace VibrationAnalysis.UI.Devices
     /// </summary>
     public sealed class SoundCardDevice : StreamingDeviceBase
     {
-        private const int CallbackEvent = 0x50000, WhdrDone = 0x1, Buffers = 8;
+        private const int CallbackEvent = 0x50000, WaveMapped = 0x0004, WhdrDone = 0x1, Buffers = 8;
         private IntPtr handle;
         private readonly IntPtr[] headers = new IntPtr[Buffers];
         private readonly IntPtr[] data = new IntPtr[Buffers];
@@ -51,15 +51,33 @@ namespace VibrationAnalysis.UI.Devices
             deviceName = "Placa de sonido · " + (devs.FirstOrDefault(x => x.StartsWith(dev + ":", StringComparison.Ordinal))?.Substring(dev.ToString(CultureInfo.InvariantCulture).Length + 2) ?? dev.ToString(CultureInfo.InvariantCulture));
             map = Active.Select(c => int.TryParse(c.Physical, NumberStyles.Integer, CultureInfo.InvariantCulture, out var p) ? Math.Clamp(p, 0, 1) : 0).ToArray();
             inputChannels = map.Max() + 1;
-            bytesPerSample = s.Bits >= 24 ? 3 : 2;
-            var fmt = new WinMM.WAVEFORMATEX
-            {
-                wFormatTag = 1, nChannels = (ushort)inputChannels, nSamplesPerSec = (uint)s.SampleRate,
-                wBitsPerSample = (ushort)(bytesPerSample * 8), nBlockAlign = (ushort)(inputChannels * bytesPerSample),
-            };
-            fmt.nAvgBytesPerSec = fmt.nSamplesPerSec * fmt.nBlockAlign;
             evt = new AutoResetEvent(false);
-            Check(WinMM.waveInOpen(out handle, (IntPtr)dev, ref fmt, evt.SafeWaitHandle.DangerousGetHandle(), IntPtr.Zero, CallbackEvent), "abrir la entrada de audio");
+            // Primero el formato pedido con la conversión de Windows (WAVE_MAPPED); si falla, 16 bits y luego 48/44,1 kHz
+            var tries = new List<(int Bits, uint Rate)> { (s.Bits >= 24 ? 24 : 16, (uint)s.SampleRate), (16, (uint)s.SampleRate), (16, 48000), (16, 44100) }.Distinct().ToList();
+            WinMM.WAVEFORMATEX fmt = default;
+            int result = -1;
+            foreach (var (bits, rate) in tries)
+            {
+                bytesPerSample = bits / 8;
+                fmt = new WinMM.WAVEFORMATEX
+                {
+                    wFormatTag = 1, nChannels = (ushort)inputChannels, nSamplesPerSec = rate,
+                    wBitsPerSample = (ushort)bits, nBlockAlign = (ushort)(inputChannels * bytesPerSample),
+                };
+                fmt.nAvgBytesPerSec = fmt.nSamplesPerSec * fmt.nBlockAlign;
+                result = WinMM.waveInOpen(out handle, (IntPtr)dev, ref fmt, evt.SafeWaitHandle.DangerousGetHandle(), IntPtr.Zero, CallbackEvent | WaveMapped);
+                if (result == 0) break;
+            }
+            if (result == 0 && Math.Abs(fmt.nSamplesPerSec - s.SampleRate) > 0.5)
+            {
+                // La placa no aceptó la frecuencia pedida: se usa la que abrió (el búfer se dimensiona con ella)
+                s.SampleRate = fmt.nSamplesPerSec;
+                s.Bits = fmt.wBitsPerSample;
+                ResizeBuffer(s);
+            }
+            if (result != 0 && inputChannels > 1)
+                LastError = "Si el micrófono es mono, desactivá el canal de la entrada «1» (tacómetro) en «Configurar equipo…».";
+            Check(result, "abrir la entrada de audio");
             bufferBytes = Math.Max(fmt.nBlockAlign * 256, (int)(fmt.nAvgBytesPerSec / 20) / fmt.nBlockAlign * fmt.nBlockAlign);   // 50 ms
             int hdrSize = Marshal.SizeOf<WinMM.WAVEHDR>();
             for (int i = 0; i < Buffers; i++)
@@ -137,7 +155,15 @@ namespace VibrationAnalysis.UI.Devices
             if (result == 0) return;
             var sb = new StringBuilder(256);
             WinMM.waveInGetErrorText(result, sb, sb.Capacity);
-            string msg = $"No se pudo {what}: {sb} (código {result}).";
+            string hint = result switch
+            {
+                1 => "\nCausa más probable: Windows bloquea el micrófono para aplicaciones de escritorio. Abrí Configuración → Privacidad y seguridad → Micrófono y activá «Permitir que las aplicaciones de escritorio accedan al micrófono».",
+                4 => "\nOtra aplicación está usando la entrada en modo exclusivo: cerrala o desactivá el modo exclusivo en las propiedades del dispositivo.",
+                32 => "\nLa entrada no acepta ese formato: probá 48000 Hz, 16 bits y un solo canal.",
+                _ => "",
+            };
+            if (LastError.Length > 0 && result != 1) hint += "\n" + LastError;
+            string msg = $"No se pudo {what}: {sb} (código {result}).{hint}";
             LastError = msg;
             try { OnStop(); } catch { }
             throw new InvalidOperationException(msg);

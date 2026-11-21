@@ -273,6 +273,9 @@ public abstract class StreamingDeviceBase : IAcquisitionDevice
     /// <summary>Lo llama el equipo con cada bloque nuevo: [canal habilitado][muestra] en volts.</summary>
     protected void Push(double[][] volts, int count = -1) => Buffer?.Append(volts, count);
 
+    /// <summary>Rehace el búfer si el equipo terminó usando otra frecuencia de muestreo que la pedida.</summary>
+    protected void ResizeBuffer(AcquisitionSettings s) => Buffer = new StreamBuffer(Active.Count, (int)Math.Max(1024, s.BufferSeconds * s.SampleRate));
+
     public (Recording Recording, IReadOnlyList<QualityIssue> Issues) Snapshot(double seconds, double nominalRpm)
     {
         if (Buffer == null || Settings == null) throw new InvalidOperationException("El equipo no está adquiriendo.");
