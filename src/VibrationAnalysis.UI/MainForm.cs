@@ -898,8 +898,7 @@ namespace VibrationAnalysis.UI
             Row("Excentricidad", double.IsFinite(m.EccentricityDb) ? $"{m.EccentricityDb:0.0} dB" : "—");
             Row("THD", $"{m.ThdPercent:0.0} %");
             foreach (var (o, p) in m.Harmonics.Where(h => h.Percent >= 0.5)) Row($"Armónico {o}", $"{p:0.0} %");
-            lblAdvSummary.Text = $"Rotor: {m.RotorCondition} (banda inferior a {(double.IsFinite(m.LowerSidebandDb) ? m.LowerSidebandDb.ToString("0.0", Es) + " dB" : "—")}) · THD {m.ThdPercent:0.0} %{unb}
-" +
+            lblAdvSummary.Text = $"Rotor: {m.RotorCondition} (banda inferior a {(double.IsFinite(m.LowerSidebandDb) ? m.LowerSidebandDb.ToString("0.0", Es) + " dB" : "—")}) · THD {m.ThdPercent:0.0} %{unb}\n" +
                                  (m.Notes.Count > 0 ? string.Join(" ", m.Notes) : $"Resolución {z.Resolution:0.###} Hz con {recording.Duration:0.#} s de registro. Escala en dB respecto de la línea.");
             advPlot.Invalidate();
         }
@@ -947,8 +946,7 @@ namespace VibrationAnalysis.UI
             lvAdvPeaks.Items.Add(new ListViewItem(new[] { "Pico", $"{u.PeakDbuV:0.0} dBµV" }));
             lvAdvPeaks.Items.Add(new ListViewItem(new[] { "Factor de cresta", u.CrestFactor.ToString("0.00", Es) }));
             lastUsWav = WavWriter.Mono16(UltrasoundAnalysis.Heterodyne(ch.Data, fs, (double)nudUsCarrier.Value, 8000), 8000);
-            lblAdvSummary.Text = $"Ultrasonido {u.BandLow / 1000:0}–{u.BandHigh / 1000:0} kHz: {u.RmsDbuV:0.0} dBµV RMS, pico {u.PeakDbuV:0.0} dBµV, cresta {u.CrestFactor:0.0}.
-" +
+            lblAdvSummary.Text = $"Ultrasonido {u.BandLow / 1000:0}–{u.BandHigh / 1000:0} kHz: {u.RmsDbuV:0.0} dBµV RMS, pico {u.PeakDbuV:0.0} dBµV, cresta {u.CrestFactor:0.0}.\n" +
                                  "Guardalo en Tendencias y compará con la línea base: +8 dB falta lubricación · +12 falla incipiente · +16 falla · +35 catastrófica.";
             advPlot.Invalidate();
         }
