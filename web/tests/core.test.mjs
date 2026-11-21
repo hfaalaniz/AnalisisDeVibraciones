@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fft, spectrum, fitSinusoid, convertUnits, statistics, G } from '../js/core/dsp.js';
 import { evaluateSeverity, diagnose } from '../js/core/analysis.js';
 import { singlePlane, twoPlanes, BalancingSession, splitWeight, drillDepthMm, suggestTrialGrams, permissibleUnbalance, padd, psub, C, toC, toP } from '../js/core/balance.js';
-import { RotorSimulator, defaultSimSettings, parseCsv, writeCsv, parseWav, SerialStreamParser } from '../js/core/io.js';
+import { RotorSimulator, defaultSimSettings, parseCsv, writeCsv, parseWav, SerialStreamParser, crc16 } from '../js/core/io.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} ≠ ${b} (±${tol})`);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -128,6 +128,28 @@ test('CSV ida y vuelta, WAV y protocolo serie', () => {
   const p = new SerialStreamParser();
   p.feed('basura\n#VA fs=2000 ch=2 unit=g tach=1\n0.1,0.2,0\n0.3,0.4,5\n0.5,'); p.feed('0.6,0\n');
   const sr = p.toRecording(); assert.equal(sr.length, 3); near(sr.channels[1].data[2], 0.6, 1e-12, 'dato');
+});
+
+test('Protocolo binario v2 del sensor multicanal', () => {
+  assert.equal(crc16(new TextEncoder().encode('123456789')), 0x29b1);
+  const frame = (seq, ch, n, val, tachAt) => {
+    const tb = (n + 7) >> 3, f = new Uint8Array(7 + n * ch * 2 + tb + 2), dv = new DataView(f.buffer);
+    f[0] = 0xa5; f[1] = 0x5a; dv.setUint16(2, seq, true); dv.setUint16(4, n, true); f[6] = ch;
+    let o = 7;
+    for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++, o += 2) dv.setInt16(o, val * (c + 1) * (i % 2 ? -1 : 1), true);
+    if (tachAt >= 0) f[o + (tachAt >> 3)] |= 1 << (tachAt & 7);
+    o += tb; dv.setUint16(o, crc16(f, 2, o), true);
+    return f;
+  };
+  const p = new SerialStreamParser();
+  p.feed('#VA2 fs=26667 ch=3 unit=g tach=1 scale=0.001 names=X,Y,Z sensor=IIS3DWB\n');
+  const all = [frame(0, 3, 32, 100, 5), frame(1, 3, 32, 100, -1), frame(3, 3, 32, 100, 0)];
+  all[1][12] ^= 0xff;
+  for (const f of all) { p.feedBytes(f.slice(0, 20)); p.feedBytes(f.slice(20)); }
+  const r = p.toRecording();
+  assert.equal(p.framesOk, 2); assert.ok(p.crcErrors >= 1); assert.equal(p.lostFrames, 2);
+  assert.equal(r.length, 64); assert.equal(r.channels[2].name, 'Z'); near(r.channels[2].data[1], -0.3, 1e-12, 'valor');
+  assert.equal(r.tach.filter((v) => v > 0).length, 2);
 });
 
 test('Diagnóstico: desbalance, desalineación y rodamiento', () => {

@@ -1,0 +1,324 @@
+/*
+  Sensor de vibraciones multicanal USB — "Análisis de Vibraciones y Balanceo"
+  Autor: Fabian Alaniz – ElectroNet · www.developers-soft.com
+
+  Hasta 4 acelerómetros por SPI + tacómetro óptico. Tres modelos (elegir con SENSOR_TYPE):
+    · ADXL345  — económico, 13 bits, hasta 3200 Hz (ruido ≈ 290 µg/√Hz). Uso general y balanceo.
+    · ADXL355  — bajo ruido (25 µg/√Hz), 20 bits, 4000 Hz. Baja frecuencia, máquinas lentas, tendencias.
+    · IIS3DWB  — específico de vibraciones, 16 bits, 26,7 kHz, plano hasta 6 kHz. Rodamientos y engranajes.
+  Cada sensor puede enviar un eje (Z, perpendicular a la base) o los tres (triaxial).
+
+  Protocolo (USB serie; ver firmware/README.md):
+    PC → sensor:  START | STOP | BIN | TEXT | INFO
+    Texto  (v1): "#VA fs=3200 ch=2 unit=g tach=1"  y una línea por muestra "a1,a2,tach".
+    Binario(v2): "#VA2 fs=26667 ch=4 unit=g tach=1 scale=… names=… sensor=…" y tramas
+                 A5 5A | seq u16 | n u16 | ch u8 | n·ch × int16 | ⌈n/8⌉ bytes tacómetro | CRC-16/CCITT (LE).
+  Por defecto elige texto si entra en 921600 baudios y binario si no (la app de Windows entiende ambos; la web, texto).
+
+  Placa: ESP32 (ADXL345/ADXL355) o ESP32-S3 con USB nativo ("USB CDC On Boot" activado) para IIS3DWB a 26,7 kHz.
+  Núcleo Arduino-ESP32 3.x.
+
+  Ejemplo de referencia: compila en el CI, pero no fue probado en hardware. Verificar cableado, alimentación (3,3 V)
+  y fijación del acelerómetro (espárrago o base magnética) antes de usar en planta.
+*/
+#include <SPI.h>
+
+// ───────────── Configuración ─────────────
+#define SENSOR_ADXL345 1
+#define SENSOR_ADXL355 2
+#define SENSOR_IIS3DWB 3
+#ifndef SENSOR_TYPE
+#define SENSOR_TYPE SENSOR_ADXL355
+#endif
+
+static const bool TRIAXIAL = false;              // true: X, Y y Z de cada sensor
+#if CONFIG_IDF_TARGET_ESP32S3
+static const int CS_PINS[4] = {10, 9, 8, -1};    // ESP32-S3 (no tiene GPIO 22–25)
+static const int PIN_SCK = 12, PIN_MISO = 13, PIN_MOSI = 11;
+static const int PIN_TACH = 4;
+#else
+static const int CS_PINS[4] = {5, 17, 16, -1};   // CS de cada sensor (−1 = no usado)
+static const int PIN_SCK = 18, PIN_MISO = 19, PIN_MOSI = 23;
+static const int PIN_TACH = 4;                   // sensor óptico (salida digital, pulso por vuelta)
+#endif
+static const uint32_t BAUD = 921600;
+static const int RANGE_G = 4;                    // ±2, ±4, ±8 (ADXL355/IIS3DWB) o ±16 (ADXL345 siempre ±16 g)
+static const int FRAME_SAMPLES = 64;             // muestras por trama binaria
+
+// ───────────── Estado ─────────────
+static int sensorCount = 0;
+static int csList[4];
+static int channels = 0;
+static bool running = false;
+static bool binaryMode = false;
+static bool forceMode = false;
+static uint16_t seqNo = 0;
+static float lsbG = 0;                            // g por cuenta del sensor
+static float outScale = 0;                        // g por cuenta en la trama binaria
+static uint32_t sampleRate = 0;
+static const char *sensorName = "";
+
+hw_timer_t *timer = nullptr;
+volatile bool tick = false;
+volatile uint32_t tachTimes[16];
+volatile uint8_t tachHead = 0;
+static uint8_t tachTail = 0;
+volatile bool tachFlag = false;
+
+void IRAM_ATTR onTimer() { tick = true; }
+void IRAM_ATTR onTach() {
+  tachTimes[tachHead & 15] = micros();
+  tachHead++;
+  tachFlag = true;
+}
+
+// ───────────── SPI ─────────────
+SPISettings spiAdxl345(5000000, MSBFIRST, SPI_MODE3);
+SPISettings spiAdxl355(8000000, MSBFIRST, SPI_MODE0);
+SPISettings spiIis(10000000, MSBFIRST, SPI_MODE3);
+
+static void spiWrite(SPISettings &cfg, int cs, uint8_t addr, uint8_t val) {
+  SPI.beginTransaction(cfg);
+  digitalWrite(cs, LOW);
+  SPI.transfer(addr);
+  SPI.transfer(val);
+  digitalWrite(cs, HIGH);
+  SPI.endTransaction();
+}
+
+static void spiRead(SPISettings &cfg, int cs, uint8_t addr, uint8_t *buf, int n) {
+  SPI.beginTransaction(cfg);
+  digitalWrite(cs, LOW);
+  SPI.transfer(addr);
+  for (int i = 0; i < n; i++) buf[i] = SPI.transfer(0);
+  digitalWrite(cs, HIGH);
+  SPI.endTransaction();
+}
+
+// ───────────── Controladores ─────────────
+#if SENSOR_TYPE == SENSOR_ADXL345
+static bool sensorBegin(int cs) {
+  uint8_t id;
+  spiRead(spiAdxl345, cs, 0x80 | 0x00, &id, 1);
+  if (id != 0xE5) return false;
+  spiWrite(spiAdxl345, cs, 0x31, 0x0B);   // DATA_FORMAT: resolución completa, ±16 g
+  spiWrite(spiAdxl345, cs, 0x2C, 0x0F);   // BW_RATE: 3200 Hz
+  spiWrite(spiAdxl345, cs, 0x2D, 0x08);   // POWER_CTL: medición
+  return true;
+}
+static void sensorRead(int cs, int32_t xyz[3]) {
+  uint8_t b[6];
+  spiRead(spiAdxl345, cs, 0xC0 | 0x32, b, 6);
+  for (int a = 0; a < 3; a++) xyz[a] = (int16_t)((b[2 * a + 1] << 8) | b[2 * a]);
+}
+static void sensorConfig() { sensorName = "ADXL345"; sampleRate = 3200; lsbG = 0.0039f; }
+
+#elif SENSOR_TYPE == SENSOR_ADXL355
+static bool sensorBegin(int cs) {
+  uint8_t id[3];
+  spiRead(spiAdxl355, cs, (0x00 << 1) | 1, id, 3);   // DEVID_AD, DEVID_MST, PARTID
+  if (id[0] != 0xAD || id[2] != 0xED) return false;
+  spiWrite(spiAdxl355, cs, (0x2F << 1), 0x52);       // RESET
+  delay(10);
+  uint8_t range = RANGE_G <= 2 ? 0x01 : RANGE_G <= 4 ? 0x02 : 0x03;
+  spiWrite(spiAdxl355, cs, (0x2C << 1), 0x80 | range); // RANGE (I2C alta velocidad desactivado, INT activo alto)
+  spiWrite(spiAdxl355, cs, (0x28 << 1), 0x00);       // FILTER: ODR 4000 Hz, pasabajos 1000 Hz, sin pasaaltos
+  spiWrite(spiAdxl355, cs, (0x2D << 1), 0x00);       // POWER_CTL: medición
+  return true;
+}
+static void sensorRead(int cs, int32_t xyz[3]) {
+  uint8_t b[9];
+  spiRead(spiAdxl355, cs, (0x08 << 1) | 1, b, 9);    // XDATA3 … ZDATA1
+  for (int a = 0; a < 3; a++) {
+    int32_t v = ((int32_t)b[3 * a] << 12) | ((int32_t)b[3 * a + 1] << 4) | (b[3 * a + 2] >> 4);
+    if (v & 0x80000) v -= 0x100000;                  // 20 bits con signo
+    xyz[a] = v;
+  }
+}
+static void sensorConfig() {
+  sensorName = "ADXL355"; sampleRate = 4000;
+  lsbG = RANGE_G <= 2 ? 3.9e-6f : RANGE_G <= 4 ? 7.8e-6f : 15.6e-6f;
+}
+
+#elif SENSOR_TYPE == SENSOR_IIS3DWB
+static bool sensorBegin(int cs) {
+  uint8_t id;
+  spiRead(spiIis, cs, 0x80 | 0x0F, &id, 1);          // WHO_AM_I
+  if (id != 0x7B) return false;
+  spiWrite(spiIis, cs, 0x12, 0x01);                  // CTRL3_C: SW_RESET
+  delay(10);
+  spiWrite(spiIis, cs, 0x12, 0x44);                  // CTRL3_C: BDU + IF_INC
+  uint8_t fs = RANGE_G <= 2 ? 0x00 : RANGE_G <= 4 ? 0x08 : RANGE_G <= 8 ? 0x0C : 0x04;
+  spiWrite(spiIis, cs, 0x09, 0x0A);                  // FIFO_CTRL3: lote de aceleración a 26 667 Hz
+  spiWrite(spiIis, cs, 0x0A, 0x06);                  // FIFO_CTRL4: modo continuo
+  spiWrite(spiIis, cs, 0x10, 0xA0 | fs);             // CTRL1_XL: ODR 26,7 kHz, escala
+  return true;
+}
+static int sensorFifoCount(int cs) {
+  uint8_t s[2];
+  spiRead(spiIis, cs, 0x80 | 0x3A, s, 2);            // FIFO_STATUS1/2
+  return s[0] | ((s[1] & 0x03) << 8);
+}
+static void sensorReadFifo(int cs, int32_t xyz[3]) {
+  uint8_t b[7];
+  spiRead(spiIis, cs, 0x80 | 0x78, b, 7);            // TAG + X, Y, Z
+  for (int a = 0; a < 3; a++) xyz[a] = (int16_t)((b[2 + 2 * a] << 8) | b[1 + 2 * a]);
+}
+static void sensorConfig() {
+  sensorName = "IIS3DWB"; sampleRate = 26667;
+  lsbG = RANGE_G <= 2 ? 0.061e-3f : RANGE_G <= 4 ? 0.122e-3f : RANGE_G <= 8 ? 0.244e-3f : 0.488e-3f;
+}
+#endif
+
+// ───────────── Salida ─────────────
+static int16_t frameData[FRAME_SAMPLES * 12];
+static uint8_t frameTach[(FRAME_SAMPLES + 7) / 8];
+static int frameCount = 0;
+static uint8_t txBuf[7 + FRAME_SAMPLES * 12 * 2 + (FRAME_SAMPLES + 7) / 8 + 2];
+
+static uint16_t crc16(const uint8_t *d, int n) {
+  uint16_t crc = 0xFFFF;
+  for (int i = 0; i < n; i++) {
+    crc ^= (uint16_t)d[i] << 8;
+    for (int k = 0; k < 8; k++) crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021) : (uint16_t)(crc << 1);
+  }
+  return crc;
+}
+
+static void flushFrame() {
+  if (frameCount == 0) return;
+  int n = frameCount, tb = (n + 7) / 8, o = 0;
+  txBuf[o++] = 0xA5; txBuf[o++] = 0x5A;
+  txBuf[o++] = seqNo & 0xFF; txBuf[o++] = seqNo >> 8;
+  txBuf[o++] = n & 0xFF; txBuf[o++] = n >> 8;
+  txBuf[o++] = (uint8_t)channels;
+  for (int i = 0; i < n * channels; i++) { txBuf[o++] = frameData[i] & 0xFF; txBuf[o++] = (uint16_t)frameData[i] >> 8; }
+  for (int i = 0; i < tb; i++) txBuf[o++] = frameTach[i];
+  uint16_t crc = crc16(txBuf + 2, o - 2);
+  txBuf[o++] = crc & 0xFF; txBuf[o++] = crc >> 8;
+  Serial.write(txBuf, o);
+  seqNo++;
+  frameCount = 0;
+  memset(frameTach, 0, sizeof(frameTach));
+}
+
+/* Agrega una muestra (todos los canales, en cuentas del sensor) a la salida. */
+static void emitSample(const int32_t *values, bool tach) {
+  if (!binaryMode) {
+    char line[160];
+    int o = 0;
+    for (int c = 0; c < channels; c++) o += snprintf(line + o, sizeof(line) - o, "%.5f,", values[c] * lsbG);
+    snprintf(line + o, sizeof(line) - o, "%d\n", tach ? 1 : 0);
+    Serial.print(line);
+    return;
+  }
+  for (int c = 0; c < channels; c++) {
+    float g = values[c] * lsbG;
+    long q = lroundf(g / outScale);
+    if (q > 32767) q = 32767;
+    if (q < -32768) q = -32768;
+    frameData[frameCount * channels + c] = (int16_t)q;
+  }
+  if (tach) frameTach[frameCount / 8] |= 1 << (frameCount % 8);
+  if (++frameCount >= FRAME_SAMPLES) flushFrame();
+}
+
+static void sendHeader() {
+  if (!forceMode) binaryMode = (uint32_t)channels * sampleRate * 9 * 10 > BAUD;   // ≈ 9 caracteres por valor
+  String names;
+  const char axes[3] = {'X', 'Y', 'Z'};
+  for (int s = 0; s < sensorCount; s++)
+    for (int a = TRIAXIAL ? 0 : 2; a < 3; a++) {
+      if (names.length()) names += ',';
+      names += String("S") + (s + 1) + axes[a];
+    }
+  if (binaryMode)
+    Serial.printf("#VA2 fs=%lu ch=%d unit=g tach=1 scale=%.9g names=%s sensor=%s\n", (unsigned long)sampleRate, channels, outScale, names.c_str(), sensorName);
+  else
+    Serial.printf("#VA fs=%lu ch=%d unit=g tach=1\n", (unsigned long)sampleRate, channels);
+}
+
+static void sendInfo() {
+  Serial.printf("# sensor=%s sensores=%d canales=%d fs=%lu rango=±%dg modo=%s\n", sensorName, sensorCount, channels,
+                (unsigned long)sampleRate, RANGE_G, binaryMode ? "binario" : "texto");
+}
+
+// ───────────── Programa ─────────────
+void setup() {
+  Serial.begin(BAUD);
+  SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI);
+  sensorConfig();
+  for (int i = 0; i < 4; i++) {
+    if (CS_PINS[i] < 0) continue;
+    pinMode(CS_PINS[i], OUTPUT);
+    digitalWrite(CS_PINS[i], HIGH);
+  }
+  delay(20);
+  for (int i = 0; i < 4; i++)
+    if (CS_PINS[i] >= 0 && sensorBegin(CS_PINS[i])) csList[sensorCount++] = CS_PINS[i];
+    else if (CS_PINS[i] >= 0) Serial.printf("# AVISO: no responde el %s en CS=%d\n", sensorName, CS_PINS[i]);
+  channels = sensorCount * (TRIAXIAL ? 3 : 1);
+  // Escala de la trama binaria: rango completo del sensor en 16 bits
+  outScale = (SENSOR_TYPE == SENSOR_ADXL345 ? 16.0f : (float)RANGE_G) / 32767.0f;
+  pinMode(PIN_TACH, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PIN_TACH), onTach, FALLING);
+#if SENSOR_TYPE != SENSOR_IIS3DWB
+  timer = timerBegin(1000000);                   // 1 MHz (API de núcleo 3.x)
+  timerAttachInterrupt(timer, &onTimer);
+  timerAlarm(timer, 1000000 / sampleRate, true, 0);
+#endif
+  if (sensorCount == 0) Serial.println("# ERROR: no se encontró ningún acelerómetro. Revisar cableado y SENSOR_TYPE.");
+}
+
+static void handleCommands() {
+  if (!Serial.available()) return;
+  String cmd = Serial.readStringUntil('\n');
+  cmd.trim();
+  cmd.toUpperCase();
+  if (cmd == "START" && sensorCount > 0) { running = true; seqNo = 0; frameCount = 0; tachTail = tachHead; sendHeader(); }
+  else if (cmd == "STOP") { if (binaryMode) flushFrame(); running = false; }
+  else if (cmd == "BIN") { binaryMode = true; forceMode = true; }
+  else if (cmd == "TEXT") { binaryMode = false; forceMode = true; }
+  else if (cmd == "INFO") sendInfo();
+}
+
+void loop() {
+  handleCommands();
+  if (!running) return;
+  int32_t xyz[3], values[12];
+
+#if SENSOR_TYPE == SENSOR_IIS3DWB
+  // FIFO: se leen las muestras disponibles en todos los sensores (la menor cantidad, para mantenerlos alineados)
+  int avail = 512;
+  for (int s = 0; s < sensorCount; s++) avail = min(avail, sensorFifoCount(csList[s]));
+  if (avail <= 0) return;
+  uint32_t now = micros();
+  for (int i = 0; i < avail; i++) {
+    int c = 0;
+    for (int s = 0; s < sensorCount; s++) {
+      sensorReadFifo(csList[s], xyz);
+      for (int a = TRIAXIAL ? 0 : 2; a < 3; a++) values[c++] = xyz[a];
+    }
+    // El pulso se ubica en la muestra cuyo instante (estimado desde el momento de lectura) es el más cercano
+    bool t = false;
+    while (tachTail != tachHead) {
+      uint32_t age = now - tachTimes[tachTail & 15];
+      long idx = (long)avail - 1 - (long)((uint64_t)age * sampleRate / 1000000ULL);
+      if (idx > i) break;
+      t = true; tachTail++;
+    }
+    emitSample(values, t);
+  }
+#else
+  if (!tick) return;
+  tick = false;
+  int c = 0;
+  for (int s = 0; s < sensorCount; s++) {
+    sensorRead(csList[s], xyz);
+    for (int a = TRIAXIAL ? 0 : 2; a < 3; a++) values[c++] = xyz[a];
+  }
+  bool t = tachFlag;
+  if (t) { tachFlag = false; tachTail = tachHead; }
+  emitSample(values, t);
+#endif
+}

@@ -137,14 +137,13 @@ import { WaveChart, SpectrumChart, PolarChart } from './charts.js';
     } catch (err) { serial.running = false; if (err.name !== 'NotFoundError') toast('No se pudo conectar: ' + err.message, 7000); }
   }
   async function readSerialLoop() {
-    const dec = new TextDecoder();
     while (serial.running && serial.port?.readable) {
       serial.reader = serial.port.readable.getReader();
       try {
         for (;;) {
           const { value, done } = await serial.reader.read();
           if (done) break;
-          serial.parser.feed(dec.decode(value, { stream: true }));
+          serial.parser.feedBytes(value);
         }
       } catch { /* desconexión */ } finally { serial.reader.releaseLock(); }
     }

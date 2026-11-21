@@ -466,6 +466,57 @@ t.Run("Base de mediciones: demo, persistencia, CSV y borrado", () =>
     finally { try { Directory.Delete(dir, true); } catch { } }
 });
 
+// ───────────── Sensor multicanal (protocolo v2) ─────────────
+t.Run("Protocolo binario v2: 4 canales, tacómetro y trozos al azar", () =>
+{
+    var rnd = new Random(9);
+    var head = Encoding.ASCII.GetBytes("ruido\n#VA2 fs=26667 ch=4 unit=g tach=1 scale=0.000061 names=X,Y,Z,X2 sensor=IIS3DWB\n");
+    var stream = new List<byte>(head);
+    var expect = new List<short>[4].Select(_ => new List<short>()).ToArray();
+    var tachExp = new List<bool>();
+    for (ushort seq = 0; seq < 20; seq++)
+    {
+        var smp = Enumerable.Range(0, 4).Select(c => Enumerable.Range(0, 64).Select(i => (short)rnd.Next(-30000, 30000)).ToArray()).ToArray();
+        var tb = Enumerable.Range(0, 64).Select(i => i == 10).ToArray();
+        for (int c = 0; c < 4; c++) expect[c].AddRange(smp[c]);
+        tachExp.AddRange(tb);
+        stream.AddRange(SensorProtocol.EncodeFrame(seq, smp, tb));
+    }
+    var p = new SerialStreamParser();
+    var all = stream.ToArray();
+    for (int i = 0; i < all.Length;) { int k = Math.Min(all.Length - i, rnd.Next(1, 300)); p.Feed(all, i, k); i += k; }
+    var r = p.ToRecording();
+    T.True(p.Binary, "modo binario"); T.Eq(p.FramesOk, 20L, "tramas"); T.Eq(p.CrcErrors, 0L, "sin errores"); T.Eq(r.Length, 1280, "muestras");
+    T.Eq(r.Channels[3].Name, "X2", "nombres"); T.Near(r.SampleRate, 26667, 1e-9, "fs");
+    T.Near(r.Channels[2].Data[700], expect[2][700] * 0.000061, 1e-12, "valor escalado");
+    T.Eq(r.Tach!.Count(v => v > 0), 20, "pulsos"); T.True(r.Tach[10] > 0 && r.Tach[74] > 0, "posición del pulso");
+});
+t.Run("Protocolo binario v2: CRC, tramas perdidas y reconexión", () =>
+{
+    short[][] Block(int v) => Enumerable.Range(0, 2).Select(c => Enumerable.Repeat((short)v, 32).ToArray()).ToArray();
+    var p = new SerialStreamParser();
+    p.Feed("#VA2 fs=4000 ch=2 unit=g tach=0 scale=0.001\n");
+    var f0 = SensorProtocol.EncodeFrame(0, Block(1), null);
+    var f1 = SensorProtocol.EncodeFrame(1, Block(2), null); f1[20] ^= 0xFF;      // corrupta
+    var f3 = SensorProtocol.EncodeFrame(3, Block(4), null);                       // falta la 2
+    foreach (var f in new[] { f0, f1, f3 }) p.Feed(f, 0, f.Length);
+    T.Eq(p.FramesOk, 2L, "tramas buenas"); T.True(p.CrcErrors >= 1, "CRC detectado"); T.Eq(p.LostFrames, 2L, "perdidas (1 corrupta + 1 faltante)");
+    T.Eq(p.ToRecording().Length, 64, "muestras válidas");
+    p.Feed("#VA fs=1000 ch=1 unit=g tach=0\n0.5\n0.6\n");
+    T.True(!p.Binary, "volvió a texto"); T.Eq(p.ToRecording().Length, 2, "datos nuevos");
+    T.Eq(SensorProtocol.Crc16(Encoding.ASCII.GetBytes("123456789")), (ushort)0x29B1, "CRC-16/CCITT-FALSE de referencia");
+});
+t.Run("Memoria acotada en vivo y últimos segundos", () =>
+{
+    var p = new SerialStreamParser { MaxSeconds = 2 };
+    var sb = new StringBuilder("#VA fs=1000 ch=1 unit=g tach=0\n");
+    for (int i = 0; i < 5000; i++) sb.Append(i).Append('\n');
+    p.Feed(sb.ToString());
+    T.True(p.Count <= 2400 && p.Count >= 2000, $"conserva ≈ 2 s ({p.Count})");
+    var r = p.ToRecording(0, 1);
+    T.Eq(r.Length, 1000, "último segundo"); T.Near(r.Channels[0].Data[^1], 4999, 1e-9, "dato más reciente");
+});
+
 int failed = t.Summary();
 var emitIdx = Array.IndexOf(args, "--emit");
 if (emitIdx >= 0 && emitIdx + 1 < args.Length) Vectors.Emit(args[emitIdx + 1]);

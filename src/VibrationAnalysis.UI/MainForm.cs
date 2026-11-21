@@ -56,6 +56,10 @@ namespace VibrationAnalysis.UI
         private SignalControl signal;
         private SpectrumPlotControl spectrum;
         private readonly Timer liveTimer = new Timer { Interval = 1000 };
+        private readonly Timer linkTimer = new Timer { Interval = 500 };
+        private ComboBox cmbSerialMode;
+        private NumericUpDown nudCapture;
+        private Label lblLink;
         private Label lblSeverity, lblSeverityDesc;
         private Panel severityBar;
         private ListView lvFindings;
@@ -230,7 +234,11 @@ namespace VibrationAnalysis.UI
             chkLive = new CheckBox { Text = "En vivo (1 s)", AutoSize = true, Margin = new Padding(8, 8, 8, 0) };
             chkLive.CheckedChanged += (s, e) => { if (chkLive.Checked) liveTimer.Start(); else liveTimer.Stop(); };
             cmbPort = Combo(SerialPort.GetPortNames(), 90);
-            cmbBaud = Combo(new[] { "115200", "230400", "460800", "921600", "500000", "1000000" }, 90);
+            cmbBaud = Combo(new[] { "921600", "115200", "230400", "460800", "1000000", "2000000", "3000000" }, 90);
+            cmbSerialMode = Combo(new[] { "Auto", "Texto", "Binario" }, 75);
+            nudCapture = Nud(0.5m, 30, 2, 1); nudCapture.Width = 60;
+            lblLink = new Label { AutoSize = true, Margin = new Padding(8, 8, 0, 0), ForeColor = Color.FromArgb(14, 124, 134) };
+            linkTimer.Tick += (s, e) => { if (port?.IsOpen == true) lock (serialParser) lblLink.Text = serialParser.Status + (serialParser.LastMessage.Length > 0 ? " · " + serialParser.LastMessage : ""); };
             btnConnect = Btn("Conectar", (s, e) => ToggleSerial());
             cmbChannel = Combo(new string[0], 110);
             cmbChannel.SelectedIndexChanged += (s, e) => RefreshAnalysis();
@@ -239,7 +247,7 @@ namespace VibrationAnalysis.UI
             cmbWindow = Combo(new[] { "Hanning", "Flat-top", "Hamming", "Rectangular" }, 100);
             cmbWindow.SelectedIndexChanged += (s, e) => RefreshAnalysis();
             btnExportCsv = Btn("Exportar CSV", (s, e) => ExportCsv());
-            top.Controls.AddRange(new Control[] { Lbl("Fuente:"), cmbSource, btnAcquire, chkLive, Lbl("Puerto:"), cmbPort, cmbBaud, btnConnect, Lbl("Canal:"), cmbChannel, Lbl("Ver:"), cmbUnitView, Lbl("Ventana:"), cmbWindow, btnExportCsv });
+            top.Controls.AddRange(new Control[] { Lbl("Fuente:"), cmbSource, btnAcquire, chkLive, Lbl("Puerto:"), cmbPort, cmbBaud, Lbl("Modo:"), cmbSerialMode, Lbl("Capturar (s):"), nudCapture, btnConnect, Btn("Info", (s, e) => { try { port?.WriteLine("INFO"); } catch { } }), Lbl("Canal:"), cmbChannel, Lbl("Ver:"), cmbUnitView, Lbl("Ventana:"), cmbWindow, btnExportCsv, lblLink });
 
             lblStats = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 4, 8, 4), Font = new Font("Consolas", 9.5f) };
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, FixedPanel = FixedPanel.Panel2 };
@@ -269,7 +277,7 @@ namespace VibrationAnalysis.UI
         private void OnSourceChanged()
         {
             var src = CurrentSource;
-            cmbPort.Enabled = cmbBaud.Enabled = btnConnect.Enabled = src == Source.Serial;
+            cmbPort.Enabled = cmbBaud.Enabled = btnConnect.Enabled = cmbSerialMode.Enabled = nudCapture.Enabled = src == Source.Serial;
             chkLive.Enabled = src is Source.Simulator or Source.Serial;
             btnAcquire.Text = src switch { Source.File => "Abrir archivo…", Source.Serial => "Capturar", Source.Manual => "—", _ => "Adquirir" };
             btnAcquire.Enabled = src != Source.Manual;
@@ -295,7 +303,7 @@ namespace VibrationAnalysis.UI
                         break;
                     case Source.Serial:
                         if (port == null || !port.IsOpen) { if (!silent) Warn("Conectá primero el puerto serie."); return false; }
-                        r = serialParser.ToRecording(machine.Rpm);
+                        lock (serialParser) r = serialParser.ToRecording(machine.Rpm, (double)nudCapture.Value);
                         if (r.Length < 256) { if (!silent) Warn("Todavía no llegaron suficientes muestras del sensor."); return false; }
                         break;
                     default:
@@ -388,10 +396,23 @@ namespace VibrationAnalysis.UI
                 serialParser.Clear();
                 port.DataReceived += (s, e) =>
                 {
-                    try { var chunk = port.ReadExisting(); lock (serialParser) serialParser.Feed(chunk); } catch (Exception ex) { LogManager.Instance.LogError("Serie: " + ex.Message); }
+                    try
+                    {
+                        var sp = (SerialPort)s;
+                        int n = sp.BytesToRead;
+                        if (n <= 0) return;
+                        var data = new byte[n];
+                        int got = sp.Read(data, 0, n);
+                        lock (serialParser) serialParser.Feed(data, 0, got);
+                    }
+                    catch (Exception ex) { LogManager.Instance.LogError("Serie: " + ex.Message); }
                 };
+                port.ReadBufferSize = 1 << 20;
                 port.Open();
+                if (cmbSerialMode.SelectedIndex == 1) port.WriteLine("TEXT");
+                else if (cmbSerialMode.SelectedIndex == 2) port.WriteLine("BIN");
                 port.WriteLine("START");
+                linkTimer.Start();
                 btnConnect.Text = "Desconectar";
                 SetStatus($"Conectado a {port.PortName}. Esperando la cabecera #VA del sensor…");
             }
@@ -400,6 +421,8 @@ namespace VibrationAnalysis.UI
 
         private void ClosePort()
         {
+            linkTimer.Stop();
+            if (lblLink != null) lblLink.Text = "";
             try { if (port?.IsOpen == true) { port.WriteLine("STOP"); port.Close(); } } catch { }
             port?.Dispose();
             port = null;
@@ -2112,7 +2135,7 @@ namespace VibrationAnalysis.UI
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { liveTimer.Dispose(); port?.Dispose(); }
+            if (disposing) { liveTimer.Dispose(); linkTimer.Dispose(); port?.Dispose(); }
             base.Dispose(disposing);
         }
     }
