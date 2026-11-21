@@ -32,6 +32,7 @@ namespace VibrationAnalysis.UI
         private enum Source { Simulator, File, Serial, Manual, SoundCard, Daq, Network }
 
         private const string WebUrl = "https://analisisdevibraciones.pages.dev/";
+        private const string ManualUrl = "https://github.com/hfaalaniz/AnalisisDeVibraciones/blob/main/docs/MANUAL.md";
         private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-AR");
 
         /// <summary>Versión de la app tomada del ensamblado (sin el hash del commit), p. ej. «3.0.0».</summary>
@@ -184,7 +185,8 @@ namespace VibrationAnalysis.UI
             }
             view.DropDownItems.Add("Cargar tema desde archivo…", null, (s, e) => LoadThemeFile());
             var help = new ToolStripMenuItem("A&yuda");
-            help.DropDownItems.Add("Versión web y manual", null, (s, e) => OpenUrl(WebUrl));
+            help.DropDownItems.Add("Manual de usuario", null, (s, e) => OpenUrl(ManualUrl));
+            help.DropDownItems.Add("Versión web", null, (s, e) => OpenUrl(WebUrl));
             help.DropDownItems.Add("Carpeta de registros (logs)", null, (s, e) => OpenUrl(Path.GetDirectoryName(LogManager.Instance.LogFilePath)));
             help.DropDownItems.Add("Acerca de…", null, (s, e) => MessageBox.Show(this,
                 $"Análisis de Vibraciones y Balanceo {AppVersion}\n\nAutor: Fabian Alaniz – ElectroNet\n+54 9 351 284-8802 · www.developers-soft.com\n\n" +

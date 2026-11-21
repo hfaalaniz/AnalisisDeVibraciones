@@ -1,7 +1,7 @@
 ﻿; Instalador de «Análisis de Vibraciones y Balanceo» (Inno Setup 6)
 ; Autor: Fabian Alaniz – ElectroNet · www.developers-soft.com
 ; Compilar (desde la raíz del repo, después de «dotnet publish … -o publish\AnalisisVibraciones»):
-;   iscc /DAppVersion=3.0.0 installer\AnalisisVibraciones.iss
+;   iscc /DAppVersion=3.1.0 installer\AnalisisVibraciones.iss
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
