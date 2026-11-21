@@ -19,6 +19,7 @@ namespace VibrationAnalysis.UI
     {
         public sealed record Marker(double X, string Label, Color Color);
         public sealed record PeakLabel(double X, double Y, string Text);
+        public sealed record HLine(double Y, string Label, Color Color);
 
         private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-AR");
         private double[] xs = Array.Empty<double>(), ys = Array.Empty<double>();
@@ -37,6 +38,12 @@ namespace VibrationAnalysis.UI
         public bool Stems { get; set; }
         public List<Marker> Markers { get; } = new List<Marker>();
         public List<PeakLabel> Peaks { get; } = new List<PeakLabel>();
+        /// <summary>Líneas horizontales (p. ej. límites de alarma).</summary>
+        public List<HLine> HorizontalLines { get; } = new List<HLine>();
+        /// <summary>Formato propio para los rótulos del eje X (p. ej. fechas). Si es null se usa <see cref="XFormat"/>.</summary>
+        public Func<double, string> XFormatter { get; set; }
+        /// <summary>Dibuja un punto en cada dato (tendencias con pocas mediciones).</summary>
+        public bool ShowPoints { get; set; }
         public Color PlotBackColor { get; set; } = Color.White;
         public Color GridColor { get; set; } = Color.FromArgb(215, 222, 224);
         public Color LineColor { get; set; } = Color.FromArgb(14, 124, 134);
@@ -88,6 +95,11 @@ namespace VibrationAnalysis.UI
                 if (double.IsNaN(v) || double.IsInfinity(v)) continue;
                 lo = Math.Min(lo, v); hi = Math.Max(hi, v);
             }
+            foreach (var h in HorizontalLines)
+            {
+                double v = Transform(h.Y);
+                if (!double.IsNaN(v) && !double.IsInfinity(v) && lo <= hi && v < hi * 3 + 1e-12) hi = Math.Max(hi, v);
+            }
             if (lo > hi) return (0, 1);
             if (LogY) { lo = Math.Max(lo, hi - 100); return (Math.Floor(lo / 10) * 10, Math.Ceiling(hi / 10) * 10 + 5); }
             if (lo > 0) lo = 0;
@@ -116,7 +128,7 @@ namespace VibrationAnalysis.UI
             {
                 float px = X(v);
                 g.DrawLine(grid, px, r.Top, px, r.Bottom);
-                var s = v.ToString(XFormat, Es);
+                var s = XFormatter != null ? XFormatter(v) : v.ToString(XFormat, Es);
                 var sz = g.MeasureString(s, Font);
                 g.DrawString(s, Font, text, px - sz.Width / 2, r.Bottom + 3);
             }
@@ -140,6 +152,17 @@ namespace VibrationAnalysis.UI
             g.Restore(state);
 
             g.SetClip(r);
+            foreach (var h in HorizontalLines)
+            {
+                double hv = Transform(h.Y);
+                if (double.IsNaN(hv) || double.IsInfinity(hv) || hv < yMin || hv > yMax) continue;
+                using var hp = new Pen(h.Color, 1.4f) { DashStyle = DashStyle.Dash };
+                float py = Y(hv);
+                g.DrawLine(hp, r.Left, py, r.Right, py);
+                using var hb = new SolidBrush(h.Color);
+                var hs = g.MeasureString(h.Label, Font);
+                g.DrawString(h.Label, Font, hb, r.Right - hs.Width - 4, py - hs.Height);
+            }
             // Marcadores
             foreach (var m in Markers)
             {
@@ -181,6 +204,14 @@ namespace VibrationAnalysis.UI
                     if (pts.Count > 1) g.DrawLines(pen, pts.ToArray());
                 }
             }
+            if (ShowPoints)
+                using (var pb2 = new SolidBrush(LineColor))
+                    for (int i = 0; i < xs.Length; i++)
+                    {
+                        if (xs[i] < viewMin || xs[i] > viewMax) continue;
+                        float px = X(xs[i]), py = Y(Transform(ys[i]));
+                        g.FillEllipse(pb2, px - 3.5f, py - 3.5f, 7, 7);
+                    }
             // Rótulos de picos
             using (var pb = new SolidBrush(Color.FromArgb(200, 70, 20)))
                 foreach (var p in Peaks)
@@ -199,7 +230,7 @@ namespace VibrationAnalysis.UI
                 float px = X(xs[i]);
                 using var cp = new Pen(Color.FromArgb(120, TextColor)) { DashStyle = DashStyle.Dot };
                 g.DrawLine(cp, px, r.Top, px, r.Bottom);
-                string s = $"{xs[i].ToString(XFormat, Es)} · {(LogY ? Transform(ys[i]).ToString("0.0", Es) + " dB" : Fmt(ys[i]))}";
+                string s = $"{(XFormatter != null ? XFormatter(xs[i]) : xs[i].ToString(XFormat, Es))} · {(LogY ? Transform(ys[i]).ToString("0.0", Es) + " dB" : Fmt(ys[i]))}";
                 var sz = g.MeasureString(s, Font);
                 float bx = Math.Min(px + 6, r.Right - sz.Width - 2);
                 using var bg = new SolidBrush(Color.FromArgb(225, PlotBackColor));
