@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Ports;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
@@ -111,6 +112,7 @@ namespace VibrationAnalysis.UI
             NewSession();
             UpdateMachineSummary();
             SetStatus("Listo. Completá los datos de la máquina y adquirí una señal (el simulador está seleccionado).");
+            Shown += (s, e) => { if (CurrentSource == Source.Simulator && recording == null) Acquire(silent: true); };
             LogManager.Instance.LogInfo("Aplicación iniciada.");
         }
 
@@ -152,6 +154,7 @@ namespace VibrationAnalysis.UI
             var page = new TabPage("1. Máquina");
             var split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 520, FixedPanel = FixedPanel.Panel1 };
             machineGrid = new PropertyGrid { Dock = DockStyle.Fill, SelectedObject = new MachineView(machine), PropertySort = PropertySort.Categorized, ToolbarVisible = false };
+            WideLabels(machineGrid, 0.6);
             machineGrid.PropertyValueChanged += (s, e) => { UpdateMachineSummary(); RefreshAnalysis(); };
             split.Panel1.Controls.Add(machineGrid);
             machineSummary = new Label { Dock = DockStyle.Fill, Padding = new Padding(16), Font = new Font("Segoe UI", 10.5f) };
@@ -196,7 +199,7 @@ namespace VibrationAnalysis.UI
         private TabPage BuildAcquisitionTab()
         {
             var page = new TabPage("2. Adquisición");
-            var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 74, Padding = new Padding(6), WrapContents = true };
+            var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), WrapContents = true };
             cmbSource = Combo(new[] { "Simulador", "Archivo CSV / WAV", "Puerto serie (sensor)", "Ingreso manual (solo balanceo)" }, 170);
             cmbSource.SelectedIndexChanged += (s, e) => OnSourceChanged();
             btnAcquire = Btn("Adquirir", (s, e) => Acquire());
@@ -215,14 +218,17 @@ namespace VibrationAnalysis.UI
             top.Controls.AddRange(new Control[] { Lbl("Fuente:"), cmbSource, btnAcquire, chkLive, Lbl("Puerto:"), cmbPort, cmbBaud, btnConnect, Lbl("Canal:"), cmbChannel, Lbl("Ver:"), cmbUnitView, Lbl("Ventana:"), cmbWindow, btnExportCsv });
 
             lblStats = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 4, 8, 4), Font = new Font("Consolas", 9.5f) };
-            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, SplitterDistance = 900 };
-            var charts = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 280 };
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, FixedPanel = FixedPanel.Panel2 };
+            split.HandleCreated += (s, e) => { try { split.SplitterDistance = Math.Max(300, split.Width - 380); } catch { } };
+            var charts = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
+            charts.HandleCreated += (s, e) => { try { charts.SplitterDistance = Math.Max(120, charts.Height * 2 / 5); } catch { } };
             signal = new SignalControl { Dock = DockStyle.Fill };
             spectrum = new SpectrumPlotControl { Dock = DockStyle.Fill };
             charts.Panel1.Controls.Add(signal);
             charts.Panel2.Controls.Add(spectrum);
             split.Panel1.Controls.Add(charts);
             simGrid = new PropertyGrid { Dock = DockStyle.Fill, SelectedObject = new SimulatorView(simSettings), ToolbarVisible = false, HelpVisible = true };
+            WideLabels(simGrid, 0.62);
             simGrid.PropertyValueChanged += (s, e) => { sim = new RotorSimulator(simSettings); Acquire(silent: true); };
             var simBox = new GroupBox { Text = "Rotor virtual (simulador)", Dock = DockStyle.Fill };
             simBox.Controls.Add(simGrid);
@@ -1243,6 +1249,26 @@ namespace VibrationAnalysis.UI
             if (ofd.ShowDialog(this) != DialogResult.OK) return;
             try { var t = themes.LoadTheme(ofd.FileName); themes.SaveTheme(t); ApplyTheme(t.Name); }
             catch (Exception ex) { Error("No se pudo cargar el tema", ex); }
+        }
+
+        /// <summary>Ensancha la columna de nombres de un PropertyGrid (fracción del ancho) para que no se corten los rótulos.</summary>
+        private static void WideLabels(PropertyGrid grid, double fraction)
+        {
+            void Apply()
+            {
+                try
+                {
+                    var field = typeof(PropertyGrid).GetField("_gridView", BindingFlags.NonPublic | BindingFlags.Instance)
+                             ?? typeof(PropertyGrid).GetField("gridView", BindingFlags.NonPublic | BindingFlags.Instance);
+                    var view = field?.GetValue(grid);
+                    view?.GetType().GetMethod("MoveSplitterTo", BindingFlags.NonPublic | BindingFlags.Instance)
+                        ?.Invoke(view, new object[] { (int)(grid.Width * fraction) });
+                }
+                catch (Exception ex) { LogManager.Instance.LogError("PropertyGrid: " + ex.Message); }
+            }
+            grid.HandleCreated += (s, e) => Apply();
+            grid.SizeChanged += (s, e) => Apply();
+            grid.SelectedObjectsChanged += (s, e) => Apply();
         }
 
         private static ComboBox Combo(IEnumerable<string> items, int width)
