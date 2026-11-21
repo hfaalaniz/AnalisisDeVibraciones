@@ -14,6 +14,9 @@ jobs:
   windows:
     name: App de escritorio (Windows)
     runs-on: windows-latest
+    env:
+      CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+      CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -25,18 +28,48 @@ jobs:
         run: dotnet run --project tests/VibrationAnalysis.Core.Tests -c Release --no-build
       - name: Publicar ejecutable (win-x64, un solo archivo)
         run: dotnet publish src/VibrationAnalysis.UI/VibrationAnalysis.UI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/AnalisisVibraciones
+      - name: Versión
+        id: ver
+        shell: pwsh
+        run: |
+          $v = ([xml](Get-Content src/VibrationAnalysis.UI/VibrationAnalysis.UI.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Versión $v"
+      - name: Firmar el ejecutable (si hay certificado)
+        if: env.CERT_PFX_BASE64 != ''
+        shell: pwsh
+        run: ./installer/firmar.ps1 publish/AnalisisVibraciones/AnalisisVibraciones.exe
       - name: Comprimir
         shell: pwsh
         run: Compress-Archive -Path publish/AnalisisVibraciones/* -DestinationPath AnalisisVibraciones-win-x64.zip
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress | Out-Null }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc /Qp "/DAppVersion=${{ steps.ver.outputs.version }}" installer/AnalisisVibraciones.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+      - name: Firmar el instalador (si hay certificado)
+        if: env.CERT_PFX_BASE64 != ''
+        shell: pwsh
+        run: ./installer/firmar.ps1 (Get-ChildItem dist/*.exe).FullName
       - uses: actions/upload-artifact@v4
         with:
           name: AnalisisVibraciones-win-x64
           path: AnalisisVibraciones-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AnalisisVibraciones-instalador
+          path: dist/*.exe
       - name: Publicar versión (solo en etiquetas v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: AnalisisVibraciones-win-x64.zip
+          files: |
+            AnalisisVibraciones-win-x64.zip
+            dist/*.exe
 
   web:
     name: Versión web (pruebas)

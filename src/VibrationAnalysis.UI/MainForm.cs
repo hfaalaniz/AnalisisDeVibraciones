@@ -115,8 +115,11 @@ namespace VibrationAnalysis.UI
         private CheckBox chkTemp;
         private NumericUpDown nudTemp;
 
-        public MainForm()
+        public MainForm(string startupFile = null)
         {
+            try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { /* sin ícono embebido */ }
+            if (!string.IsNullOrWhiteSpace(startupFile) && File.Exists(startupFile))
+                Shown += (s, e) => { if (startupFile.EndsWith(".vaproj", StringComparison.OrdinalIgnoreCase)) OpenProject(startupFile); };
             Text = $"Análisis de Vibraciones y Balanceo {AppVersion} · Fabian Alaniz – ElectroNet";
             HtmlReport.ProductVersion = AppVersion;
             Font = new Font("Segoe UI", 9.5f);
@@ -2227,13 +2230,19 @@ namespace VibrationAnalysis.UI
             SetStatus("Proyecto guardado: " + projectPath);
         }
 
-        private void OpenProject()
+        private void OpenProject() => OpenProject(null);
+
+        private void OpenProject(string path)
         {
-            using var ofd = new OpenFileDialog { Filter = "Proyecto de balanceo (*.vaproj)|*.vaproj" };
-            if (ofd.ShowDialog(this) != DialogResult.OK) return;
+            if (path == null)
+            {
+                using var ofd = new OpenFileDialog { Filter = "Proyecto de balanceo (*.vaproj)|*.vaproj" };
+                if (ofd.ShowDialog(this) != DialogResult.OK) return;
+                path = ofd.FileName;
+            }
             try
             {
-                var p = JsonSerializer.Deserialize<ProjectFile>(File.ReadAllText(ofd.FileName), ProjOpts) ?? throw new InvalidDataException("Archivo vacío.");
+                var p = JsonSerializer.Deserialize<ProjectFile>(File.ReadAllText(path), ProjOpts) ?? throw new InvalidDataException("Archivo vacío.");
                 CopyMachine(p.Machine, machine);
                 machineGrid.Refresh();
                 cmbPlanes.SelectedIndex = p.Planes - 1;
@@ -2249,7 +2258,8 @@ namespace VibrationAnalysis.UI
                     else if (session.CanVerify) lastTrim = session.RecordVerification(r.Sensor1, r.Sensor2, r.Rpm).Trim;
                 }
                 txtTech.Text = p.Technician; txtCompany.Text = p.Company; txtNotes.Text = p.Notes;
-                projectPath = ofd.FileName;
+                projectPath = path;
+                tabs.SelectedIndex = tabs.TabPages.Count - 2;   // Balanceo
                 UpdateMachineSummary(); RefreshRuns(); ShowResult(); UpdateStepUi();
                 SetStatus("Proyecto abierto: " + projectPath);
             }
