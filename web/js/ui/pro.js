@@ -1,6 +1,6 @@
 // Pestañas profesionales de la versión web: análisis avanzado, órdenes/transitorios y tendencias con alarmas.
 // Usa el estado de app.js a través de un "puente" (bridge) para no duplicar la adquisición.
-import { convertUnits, UNITS, spectrum } from '../core/dsp.js';
+import { convertUnits, UNITS } from '../core/dsp.js';
 import { bearingOrders } from '../core/analysis.js';
 import {
   averaged, psd, zoom, cepstrum, envelopeSpectrum, spectralKurtosis, autoEnvelopeBand, butterworth,

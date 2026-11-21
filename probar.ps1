@@ -27,6 +27,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+# Huella de este script al arrancar: si al cambiar de rama o actualizar cambia, se vuelve a lanzar la versión nueva
+$huellaInicial = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
 
 # ---------- utilidades ----------
 function Titulo([string]$t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
@@ -113,6 +115,14 @@ if ($Reiniciar) {
 Ok "Rama: $Rama"
 git log --oneline -5
 
+# PowerShell ya cargó el script viejo: si la rama trae otra versión de probar.ps1, se continúa con la nueva
+if ((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash -ne $huellaInicial -and -not $env:VA_PROBAR_RELANZADO) {
+    Aviso "probar.ps1 cambió con la actualización: se vuelve a ejecutar la versión nueva."
+    $env:VA_PROBAR_RELANZADO = '1'
+    try { & $PSCommandPath @PSBoundParameters } finally { Remove-Item Env:VA_PROBAR_RELANZADO -ErrorAction SilentlyContinue }
+    exit $LASTEXITCODE
+}
+
 # ---------- pruebas ----------
 $fallos = @()
 
@@ -120,14 +130,14 @@ if ($Ejecutar -in 'todo', 'pruebas') {
     if (-not (Existe dotnet)) { Falla "No se encontró el SDK de .NET 8 (dotnet)." }
 
     Titulo "Pruebas del núcleo (C#)"
-    dotnet run --project tests\VibrationAnalysis.Core.Tests -c Release -- --emit web\tests\vectors.json
+    dotnet run --project tests\VibrationAnalysis.Core.Tests -c Release -- --emit tests\web\vectors.json
     if ($LASTEXITCODE -eq 0) { Ok "Núcleo C#" } else { $fallos += 'Núcleo C#' }
 
     Titulo "Pruebas de la web (Node)"
     if (Existe node) {
         Write-Host "  node $(node --version)"
         # Rutas relativas con '/': Node 21+ trata los argumentos de --test como glob y '\' es escape.
-        $archivos = Get-ChildItem web\tests\*.test.mjs | ForEach-Object { 'web/tests/' + $_.Name }
+        $archivos = Get-ChildItem tests\web\*.test.mjs | ForEach-Object { 'tests/web/' + $_.Name }
         $argsNode = @('--test', '--test-timeout=60000') + $archivos
         $proc = Start-Process node -ArgumentList $argsNode -NoNewWindow -PassThru
         $null = $proc.Handle                       # necesario para leer ExitCode luego
@@ -140,7 +150,7 @@ if ($Ejecutar -in 'todo', 'pruebas') {
         Aviso "Node no está instalado: se omiten las pruebas web (https://nodejs.org)."
     }
     # vectors.json está versionado: se restaura para no dejar cambios sueltos
-    git checkout -- web/tests/vectors.json
+    git checkout -- tests/web/vectors.json
 
     if ($fallos.Count -gt 0) {
         Falla ("Fallaron: " + ($fallos -join ', ') + ". No se ejecuta la app.")

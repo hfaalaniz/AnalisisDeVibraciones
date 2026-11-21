@@ -53,7 +53,8 @@ public static class MotorCurrentAnalysis
 
         // Frecuencia de red exacta (zoom ±3 Hz con interpolación)
         var coarse = AdvancedSpectrum.Zoom(current, fs, nominalLineHz, 6, WindowType.Hann);
-        var top = SpectralFeatures.Peaks(coarse, 1).FirstOrDefault();
+        var peaks = SpectralFeatures.Peaks(coarse, 1);
+        var top = peaks.Count > 0 ? peaks[0] : null;
         double f = top?.Frequency ?? nominalLineHz;
         double span = Math.Min(2 * f * 0.4, 30);
         var z = AdvancedSpectrum.Zoom(current, fs, f, span, WindowType.Hann);

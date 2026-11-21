@@ -557,4 +557,6 @@ import { initPro } from './pro.js';
   acquireSim();
   const start = { analisis: 'tab-analisis', avanzado: 'tab-avanzado', ordenes: 'tab-ordenes', tendencias: 'tab-tendencias', balanceo: 'tab-balanceo', maquina: 'tab-maquina', informe: 'tab-informe' }[location.hash.slice(1)];
   if (start) showTab(start);
+  // Sin conexión: el service worker guarda la app para usarla en planta sin señal
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch(() => {});
 }

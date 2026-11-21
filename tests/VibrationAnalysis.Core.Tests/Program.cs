@@ -492,7 +492,7 @@ t.Run("Protocolo binario v2: 4 canales, tacómetro y trozos al azar", () =>
     T.True(p.Binary, "modo binario"); T.Eq(p.FramesOk, 20L, "tramas"); T.Eq(p.CrcErrors, 0L, "sin errores"); T.Eq(r.Length, 1280, "muestras");
     T.Eq(r.Channels[3].Name, "X2", "nombres"); T.Near(r.SampleRate, 26667, 1e-9, "fs");
     T.Near(r.Channels[2].Data[700], expect[2][700] * 0.000061, 1e-12, "valor escalado");
-    T.Eq(r.Tach!.Count(v => v > 0), 20, "pulsos"); T.True(r.Tach[10] > 0 && r.Tach[74] > 0, "posición del pulso");
+    T.Eq(r.Tach!.Count(v => v > 0), 20, "pulsos"); T.True(r.Tach![10] > 0 && r.Tach[74] > 0, "posición del pulso");
 });
 t.Run("Protocolo binario v2: CRC, tramas perdidas y reconexión", () =>
 {

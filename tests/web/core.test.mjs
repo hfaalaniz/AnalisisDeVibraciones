@@ -1,14 +1,14 @@
-// Pruebas del motor web: node --test web/tests/
+// Pruebas del motor web: node --test tests/web/
 // Si existe vectors.json (generado por las pruebas de C# con --emit), se verifica que la web calcule lo mismo que la app de escritorio.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { fft, spectrum, fitSinusoid, convertUnits, statistics, G } from '../js/core/dsp.js';
-import { evaluateSeverity, diagnose } from '../js/core/analysis.js';
-import { singlePlane, twoPlanes, BalancingSession, splitWeight, drillDepthMm, suggestTrialGrams, permissibleUnbalance, padd, psub, C, toC, toP } from '../js/core/balance.js';
-import { RotorSimulator, defaultSimSettings, parseCsv, writeCsv, parseWav, SerialStreamParser, crc16 } from '../js/core/io.js';
+import { fft, spectrum, fitSinusoid, convertUnits, statistics, G } from '../../web/js/core/dsp.js';
+import { evaluateSeverity, diagnose } from '../../web/js/core/analysis.js';
+import { singlePlane, twoPlanes, BalancingSession, splitWeight, drillDepthMm, suggestTrialGrams, permissibleUnbalance, padd, psub, C, toC, toP } from '../../web/js/core/balance.js';
+import { RotorSimulator, defaultSimSettings, parseCsv, writeCsv, parseWav, SerialStreamParser, crc16 } from '../../web/js/core/io.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} ≠ ${b} (±${tol})`);
 const here = dirname(fileURLToPath(import.meta.url));

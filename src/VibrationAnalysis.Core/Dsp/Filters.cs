@@ -59,7 +59,7 @@ public sealed class IirFilter
     public static IirFilter Butterworth(FilterKind kind, int order, double fs, double f1, double f2 = 0)
     {
         if (order < 2 || order > 12 || order % 2 != 0) throw new ArgumentOutOfRangeException(nameof(order), "El orden debe ser par, entre 2 y 12.");
-        if (fs <= 0) throw new ArgumentOutOfRangeException(nameof(fs));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fs);
         double nyq = fs / 2;
         void CheckF(double f, string name) { if (!(f > 0 && f < nyq)) throw new ArgumentOutOfRangeException(name, $"La frecuencia debe estar entre 0 y {nyq:0.#} Hz."); }
         var list = new List<Biquad>();

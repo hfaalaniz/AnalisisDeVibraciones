@@ -59,53 +59,53 @@ public static class SvgChart
         double Y(double v) => top + ph - (v - yMin) / (yMax - yMin) * ph;
 
         var sb = new StringBuilder();
-        sb.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" width=\"100%\" role=\"img\" aria-label=\"{E(c.Title)}\" style=\"font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:11px\">");
-        sb.Append($"<rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#fff\"/>");
-        if (c.Title.Length > 0) sb.Append($"<text x=\"{left}\" y=\"18\" font-weight=\"600\" font-size=\"12\" fill=\"#1d2327\">{E(c.Title)}</text>");
+        sb.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" width=\"100%\" role=\"img\" aria-label=\"{E(c.Title)}\" style=\"font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:11px\">");
+        sb.Append(CultureInfo.InvariantCulture, $"<rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#fff\"/>");
+        if (c.Title.Length > 0) sb.Append(CultureInfo.InvariantCulture, $"<text x=\"{left}\" y=\"18\" font-weight=\"600\" font-size=\"12\" fill=\"#1d2327\">{E(c.Title)}</text>");
         // Grilla y ejes
         foreach (var v in Ticks(xMin, xMax, Math.Max(2, pw / 95)))
         {
             double px = X(v);
-            sb.Append($"<line x1=\"{N(px)}\" y1=\"{top}\" x2=\"{N(px)}\" y2=\"{top + ph}\" stroke=\"#e3e9eb\"/>");
-            sb.Append($"<text x=\"{N(px)}\" y=\"{top + ph + 14}\" text-anchor=\"middle\" fill=\"#5f6b70\">{E(c.XFormat != null ? c.XFormat(v) : Fmt(v))}</text>");
+            sb.Append(CultureInfo.InvariantCulture, $"<line x1=\"{N(px)}\" y1=\"{top}\" x2=\"{N(px)}\" y2=\"{top + ph}\" stroke=\"#e3e9eb\"/>");
+            sb.Append(CultureInfo.InvariantCulture, $"<text x=\"{N(px)}\" y=\"{top + ph + 14}\" text-anchor=\"middle\" fill=\"#5f6b70\">{E(c.XFormat != null ? c.XFormat(v) : Fmt(v))}</text>");
         }
         foreach (var v in Ticks(yMin, yMax, Math.Max(3, ph / 45)))
         {
             double py = Y(v);
-            sb.Append($"<line x1=\"{left}\" y1=\"{N(py)}\" x2=\"{left + pw}\" y2=\"{N(py)}\" stroke=\"#e3e9eb\"/>");
-            sb.Append($"<text x=\"{left - 5}\" y=\"{N(py + 4)}\" text-anchor=\"end\" fill=\"#5f6b70\">{E(Fmt(v))}</text>");
+            sb.Append(CultureInfo.InvariantCulture, $"<line x1=\"{left}\" y1=\"{N(py)}\" x2=\"{left + pw}\" y2=\"{N(py)}\" stroke=\"#e3e9eb\"/>");
+            sb.Append(CultureInfo.InvariantCulture, $"<text x=\"{left - 5}\" y=\"{N(py + 4)}\" text-anchor=\"end\" fill=\"#5f6b70\">{E(Fmt(v))}</text>");
         }
-        sb.Append($"<rect x=\"{left}\" y=\"{top}\" width=\"{pw}\" height=\"{ph}\" fill=\"none\" stroke=\"#9aa7ac\"/>");
-        if (c.XLabel.Length > 0) sb.Append($"<text x=\"{left + pw / 2}\" y=\"{h - 8}\" text-anchor=\"middle\" fill=\"#1d2327\">{E(c.XLabel)}</text>");
-        if (c.YLabel.Length > 0) sb.Append($"<text transform=\"translate(14 {top + ph / 2}) rotate(-90)\" text-anchor=\"middle\" fill=\"#1d2327\">{E(c.YLabel)}</text>");
+        sb.Append(CultureInfo.InvariantCulture, $"<rect x=\"{left}\" y=\"{top}\" width=\"{pw}\" height=\"{ph}\" fill=\"none\" stroke=\"#9aa7ac\"/>");
+        if (c.XLabel.Length > 0) sb.Append(CultureInfo.InvariantCulture, $"<text x=\"{left + pw / 2}\" y=\"{h - 8}\" text-anchor=\"middle\" fill=\"#1d2327\">{E(c.XLabel)}</text>");
+        if (c.YLabel.Length > 0) sb.Append(CultureInfo.InvariantCulture, $"<text transform=\"translate(14 {top + ph / 2}) rotate(-90)\" text-anchor=\"middle\" fill=\"#1d2327\">{E(c.YLabel)}</text>");
         int id = Interlocked.Increment(ref clipId);
-        sb.Append($"<clipPath id=\"clip{id}\"><rect x=\"{left}\" y=\"{top}\" width=\"{pw}\" height=\"{ph}\"/></clipPath><g clip-path=\"url(#clip{id})\">");
+        sb.Append(CultureInfo.InvariantCulture, $"<clipPath id=\"clip{id}\"><rect x=\"{left}\" y=\"{top}\" width=\"{pw}\" height=\"{ph}\"/></clipPath><g clip-path=\"url(#clip{id})\">");
         foreach (var (y, label, color) in c.HLines.Where(l => double.IsFinite(l.Y)))
         {
             double py = Y(y);
-            sb.Append($"<line x1=\"{left}\" y1=\"{N(py)}\" x2=\"{left + pw}\" y2=\"{N(py)}\" stroke=\"{color}\" stroke-width=\"1.3\" stroke-dasharray=\"6 4\"/>");
-            sb.Append($"<text x=\"{left + pw - 4}\" y=\"{N(py - 4)}\" text-anchor=\"end\" fill=\"{color}\">{E(label)}</text>");
+            sb.Append(CultureInfo.InvariantCulture, $"<line x1=\"{left}\" y1=\"{N(py)}\" x2=\"{left + pw}\" y2=\"{N(py)}\" stroke=\"{color}\" stroke-width=\"1.3\" stroke-dasharray=\"6 4\"/>");
+            sb.Append(CultureInfo.InvariantCulture, $"<text x=\"{left + pw - 4}\" y=\"{N(py - 4)}\" text-anchor=\"end\" fill=\"{color}\">{E(label)}</text>");
         }
         foreach (var (x, label, color) in c.Markers.Where(m => m.X >= xMin && m.X <= xMax))
         {
             double px = X(x);
-            sb.Append($"<line x1=\"{N(px)}\" y1=\"{top}\" x2=\"{N(px)}\" y2=\"{top + ph}\" stroke=\"{color}\" stroke-dasharray=\"4 3\" opacity=\"0.8\"/>");
-            if (label.Length > 0) sb.Append($"<text x=\"{N(px + 3)}\" y=\"{top + 11}\" fill=\"{color}\">{E(label)}</text>");
+            sb.Append(CultureInfo.InvariantCulture, $"<line x1=\"{N(px)}\" y1=\"{top}\" x2=\"{N(px)}\" y2=\"{top + ph}\" stroke=\"{color}\" stroke-dasharray=\"4 3\" opacity=\"0.8\"/>");
+            if (label.Length > 0) sb.Append(CultureInfo.InvariantCulture, $"<text x=\"{N(px + 3)}\" y=\"{top + 11}\" fill=\"{color}\">{E(label)}</text>");
         }
         foreach (var s in all)
         {
             var pts = Reduce(s, xMin, xMax, pw);
             if (s.Points)
-                foreach (var (x, y) in pts) sb.Append($"<circle cx=\"{N(X(x))}\" cy=\"{N(Y(y))}\" r=\"3\" fill=\"{s.Color}\"/>");
+                foreach (var (x, y) in pts) sb.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{N(X(x))}\" cy=\"{N(Y(y))}\" r=\"3\" fill=\"{s.Color}\"/>");
             if (pts.Count > 1)
-                sb.Append($"<polyline fill=\"none\" stroke=\"{s.Color}\" stroke-width=\"1.4\" stroke-linejoin=\"round\" points=\"{string.Join(" ", pts.Select(p => N(X(p.X)) + "," + N(Y(p.Y))))}\"/>");
+                sb.Append(CultureInfo.InvariantCulture, $"<polyline fill=\"none\" stroke=\"{s.Color}\" stroke-width=\"1.4\" stroke-linejoin=\"round\" points=\"{string.Join(" ", pts.Select(p => N(X(p.X)) + "," + N(Y(p.Y))))}\"/>");
         }
         sb.Append("</g>");
         // Leyenda
         int lx = left + 8;
         foreach (var s in all.Where(s => s.Label.Length > 0))
         {
-            sb.Append($"<rect x=\"{lx}\" y=\"{top + ph - 16}\" width=\"10\" height=\"3\" fill=\"{s.Color}\"/><text x=\"{lx + 14}\" y=\"{top + ph - 11}\" fill=\"#1d2327\">{E(s.Label)}</text>");
+            sb.Append(CultureInfo.InvariantCulture, $"<rect x=\"{lx}\" y=\"{top + ph - 16}\" width=\"10\" height=\"3\" fill=\"{s.Color}\"/><text x=\"{lx + 14}\" y=\"{top + ph - 11}\" fill=\"#1d2327\">{E(s.Label)}</text>");
             lx += 24 + s.Label.Length * 6;
         }
         sb.Append("</svg>");

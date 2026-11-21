@@ -137,7 +137,7 @@ public sealed class ModbusTcpServer : IDisposable
             TcpClient c;
             try { c = await listener.AcceptTcpClientAsync(ct); }
             catch { break; }
-            _ = Task.Run(() => Serve(c, ct));
+            _ = Task.Run(() => Serve(c, ct), CancellationToken.None);   // cada cliente termina solo al cancelar ct
         }
     }
 

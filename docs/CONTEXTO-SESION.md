@@ -82,8 +82,8 @@ Fuentes de señal (pestaña 2): simulador (fallas, arranque/parada, sensores X-Y
 ## Comandos útiles
 ```bash
 git clone https://github.com/hfaalaniz/AnalisisDeVibraciones && cd AnalisisDeVibraciones
-dotnet run --project tests/VibrationAnalysis.Core.Tests -- --emit web/tests/vectors.json
-node --test web/tests/*.test.mjs        # rutas relativas con '/': Node 21+ las trata como glob
+dotnet run --project tests/VibrationAnalysis.Core.Tests -- --emit tests/web/vectors.json
+node --test tests/web/*.test.mjs        # rutas relativas con '/': Node 21+ las trata como glob
 gh run list --repo hfaalaniz/AnalisisDeVibraciones --limit 3
 ```
 Entorno de la sesión: NuGet bloqueado (compilar con `--configfile` de un `nuget.config` sin orígenes y `--no-restore`); SDK de .NET 8 con `apt-get install dotnet-sdk-8.0`. WinForms y el firmware se verifican en el CI.

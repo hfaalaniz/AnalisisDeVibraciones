@@ -46,6 +46,7 @@ public sealed record Recording(double SampleRate, IReadOnlyList<Channel> Channel
 /// <summary>Lectura de archivos CSV/TXT con columnas de tiempo y canales.</summary>
 public static class CsvRecordingReader
 {
+    private static readonly char[] HeaderSeparators = { ' ', '\t', ',', ';' };
     /// <summary>
     /// Formatos aceptados:
     /// <list type="bullet">
@@ -70,7 +71,7 @@ public static class CsvRecordingReader
             if (line.Length == 0) continue;
             if (line.StartsWith('#'))
             {
-                foreach (var kv in line.TrimStart('#').Split(new[] { ' ', '\t', ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                foreach (var kv in line.TrimStart('#').Split(HeaderSeparators, StringSplitOptions.RemoveEmptyEntries))
                 {
                     var p = kv.Split('=');
                     if (p.Length != 2) continue;
@@ -147,7 +148,7 @@ public static class CsvRecordingReader
     {
         var sb = new StringBuilder();
         sb.Append(CultureInfo.InvariantCulture, $"# fs={r.SampleRate} rpm={r.MeasuredRpm():F1} unit={UnitToken(r.Channels[0].Unit)}\n");
-        sb.Append("t");
+        sb.Append('t');
         foreach (var c in r.Channels) sb.Append(',').Append(c.Name.Replace(',', ' '));
         if (r.Tach != null) sb.Append(",tach");
         sb.Append('\n');

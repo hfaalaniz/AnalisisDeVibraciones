@@ -199,7 +199,7 @@ export class XYChart extends Chart {
     if (d.yMin != null) y0 = tf(d.yMin); else if (!d.logY && y0 > 0 && !d.equal) y0 = 0;
     if (d.yMax != null) y1 = tf(d.yMax);
     if (d.logY) { y0 = Math.max(y0, y1 - 8); }
-    let sp = y1 - y0 || Math.abs(y1) || 1; y1 += sp * 0.06; if (d.equal || d.yMin == null && y0 < 0) y0 -= sp * 0.06;
+    const sp = y1 - y0 || Math.abs(y1) || 1; y1 += sp * 0.06; if (d.equal || d.yMin == null && y0 < 0) y0 -= sp * 0.06;
     if (x1 <= x0) x1 = x0 + 1;
     if (d.equal) { // misma escala en X e Y (órbitas, Nyquist)
       const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, ppu = Math.min(w / (x1 - x0), h / (y1 - y0));

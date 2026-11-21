@@ -1,0 +1,39 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,props}]
+indent_style = space
+indent_size = 4
+
+[*.{js,mjs,json,html,css,yml,md}]
+indent_style = space
+indent_size = 2
+
+[*.ps1]
+charset = utf-8-bom
+end_of_line = crlf
+indent_style = space
+indent_size = 4
+
+[*.cs]
+# Campos públicos a propósito: coeficientes de los filtros (ruta crítica de la DSP) y contadores con Interlocked
+dotnet_diagnostic.CA1051.severity = none
+# Nombres de enumeraciones y propiedades que se guardan en proyectos .vaproj y bases JSON: renombrarlos rompe archivos existentes
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1720.severity = none
+# «Stop» es palabra reservada solo en VB.NET; la biblioteca no se usa desde VB
+dotnet_diagnostic.CA1716.severity = none
+
+[tests/**.cs]
+# En las pruebas se usan Exception genéricas para los fallos, arreglos literales y cadenas con la cultura del sistema a propósito
+dotnet_diagnostic.CA2201.severity = none
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA1869.severity = none
+dotnet_diagnostic.CA1826.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1310.severity = none

@@ -1,8 +1,18 @@
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: serial=(self), camera=(), microphone=(), geolocation=()
+  Permissions-Policy: serial=(self), camera=(), microphone=(), geolocation=(), payment=(), usb=()
   X-Frame-Options: SAMEORIGIN
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Cross-Origin-Opener-Policy: same-origin
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; frame-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'
 
+# Código y páginas: siempre se revalidan (ETag) para que una publicación nueva no mezcle módulos viejos y nuevos
 /js/*
-  Cache-Control: public, max-age=3600
+  Cache-Control: public, max-age=0, must-revalidate
+/sw.js
+  Cache-Control: no-cache
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+/img/*
+  Cache-Control: public, max-age=604800
