@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text;
 using System.Text.Json;
+using VibrationAnalysis.Core.Acquisition;
 using VibrationAnalysis.Core.Analysis;
 using VibrationAnalysis.Core.Balancing;
 using VibrationAnalysis.Core.Dsp;
@@ -515,6 +516,65 @@ t.Run("Memoria acotada en vivo y últimos segundos", () =>
     T.True(p.Count <= 2400 && p.Count >= 2000, $"conserva ≈ 2 s ({p.Count})");
     var r = p.ToRecording(0, 1);
     T.Eq(r.Length, 1000, "último segundo"); T.Near(r.Channels[0].Data[^1], 4999, 1e-9, "dato más reciente");
+});
+
+// ───────────── IEPE / DAQ ─────────────
+t.Run("Búfer circular multicanal", () =>
+{
+    var b = new StreamBuffer(2, 100);
+    for (int k = 0; k < 5; k++) b.Append(new[] { Enumerable.Range(k * 50, 50).Select(i => (double)i).ToArray(), Enumerable.Range(k * 50, 50).Select(i => -(double)i).ToArray() });
+    var last = b.Last(50);
+    T.Eq(last[0].Length, 50, "largo"); T.Near(last[0][0], 200, 0, "primera"); T.Near(last[1][49], -249, 0, "última"); T.Eq(b.TotalSamples, 250L, "total");
+    T.Eq(b.Last(500)[0].Length, 100, "como mucho la capacidad");
+});
+t.Run("Conversión de volts a unidades: IEPE, sonda de proximidad y tacómetro", () =>
+{
+    double fs = 10000; int n = 10000;
+    var acc = Enumerable.Range(0, n).Select(i => 0.05 * Math.Cos(2 * Math.PI * 25 * i / fs)).ToArray();          // 0,5 g con 100 mV/g
+    var prox = Enumerable.Range(0, n).Select(i => -10 + 0.0787 * Math.Cos(2 * Math.PI * 25 * i / fs)).ToArray(); // 10 µm con 7,87 mV/µm, gap −10 V
+    var tach = Enumerable.Range(0, n).Select(i => (25.0 * i / fs) % 1 < 0.05 ? 5.0 : 0).ToArray();
+    var cfg = new List<ChannelConfig>
+    {
+        new() { Name = "A", Kind = SensorKind.AccelerometerIepe, Sensitivity = 100 },
+        new() { Name = "P", Kind = SensorKind.ProximityProbe, Sensitivity = 7.87 },
+        new() { Name = "T", Kind = SensorKind.Tachometer },
+    };
+    var (r, info) = ChannelAssembler.Build(new[] { acc, prox, tach }, cfg, fs, 0, "prueba");
+    T.Eq(r.Channels.Count, 2, "canales de vibración"); T.True(r.Tach != null, "tacómetro");
+    T.Near(r.Reading1X(0).Magnitude, 0.5, 1e-6, "aceleración (g)"); T.Eq(r.Channels[1].Unit, VibrationUnit.DisplacementUm, "unidad");
+    T.Near(r.Reading1X(1).Magnitude, 10, 1e-4, "desplazamiento (µm)"); T.Near(r.Channels[1].Data.Average(), 0, 1e-9, "sin gap");
+    T.Near(info[1].DcVolts, -10, 1e-9, "gap informado"); T.Near(r.MeasuredRpm(), 1500, 1, "rpm");
+});
+t.Run("Calidad de señal: saturación, señal plana, polarización IEPE y tacómetro", () =>
+{
+    double fs = 5000; int n = 5000;
+    var sine = Enumerable.Range(0, n).Select(i => 0.5 * Math.Sin(2 * Math.PI * 50 * i / fs)).ToArray();
+    T.Eq(SignalQuality.Assess("a", sine, fs, SensorKind.AccelerometerIepe, 1.0).Count, 0, "señal buena");
+    var clip = sine.Select(v => Math.Clamp(v * 3, -1.0, 1.0)).ToArray();
+    T.True(SignalQuality.Assess("a", clip, fs, SensorKind.AccelerometerIepe, 1.0).Any(q => q.Level == IssueLevel.Error && q.Message.Contains("Saturación")), "saturación");
+    T.True(SignalQuality.Assess("a", new double[n], fs, SensorKind.AccelerometerIepe).Any(q => q.Message.Contains("plana")), "plana");
+    T.True(SignalQuality.Assess("a", sine.Select(v => v + 23).ToArray(), fs, SensorKind.AccelerometerIepe, 0, true).Any(q => q.Message.Contains("abierto")), "circuito abierto");
+    T.True(SignalQuality.Assess("a", sine.Select(v => v * 0.01 + 0.5).ToArray(), fs, SensorKind.AccelerometerIepe, 0, true).Any(q => q.Message.Contains("cortocircuito")), "cortocircuito");
+    T.True(!SignalQuality.Assess("a", sine.Select(v => v + 11).ToArray(), fs, SensorKind.AccelerometerIepe, 0, true).Any(q => q.Level >= IssueLevel.Warning), "bias normal");
+    T.True(SignalQuality.Assess("t", new double[n], fs, SensorKind.Tachometer).Any(q => q.Message.Contains("pulsos")), "tacómetro sin pulsos");
+    var ski = Enumerable.Range(0, 20000).Select(i => 0.8 * Math.Exp(-i / 4000.0) + 0.05 * Math.Sin(2 * Math.PI * 50 * i / fs)).ToArray();
+    T.True(SignalQuality.Assess("a", ski, fs, SensorKind.AccelerometerIepe).Any(q => q.Message.Contains("esquí")), "bajada de esquí");
+});
+t.Run("Calibración con referencia de 1 g a 159,2 Hz", () =>
+{
+    double fs = 25600, sens = 98.5;
+    var v = Enumerable.Range(0, 25600).Select(i => Math.Sqrt(2) * 1.0 * sens / 1000 * Math.Sin(2 * Math.PI * 159.2 * i / fs + 0.3)).ToArray();
+    T.Near(SensorCalibration.SensitivityFromReference(v, fs, 159.2, 1.0), sens, 0.01, "mV/g");
+});
+t.Run("Equipo simulado: adquisición continua, instantánea y calidad", () =>
+{
+    using var dev = new SimulatedDevice { Rpm = 1500, AmplitudeG = 0.5 };
+    dev.Start(new AcquisitionSettings { SampleRate = 25600, BufferSeconds = 4 });
+    for (int k = 0; k < 10; k++) dev.Generate(12800);
+    var (r, issues) = dev.Snapshot(2, 0);
+    T.Eq(r.Length, 51200, "2 s"); T.Near(r.MeasuredRpm(), 1500, 1, "rpm"); T.Near(r.Reading1X(0).Magnitude, 0.5, 0.01, "1X");
+    T.Eq(issues.Count, 0, "sin problemas");
+    dev.Stop(); T.True(!dev.IsRunning, "detenido");
 });
 
 int failed = t.Summary();
