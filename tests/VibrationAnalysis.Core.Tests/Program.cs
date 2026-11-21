@@ -10,6 +10,7 @@ using VibrationAnalysis.Core.Dsp;
 using VibrationAnalysis.Core.IO;
 using VibrationAnalysis.Core.Model;
 using VibrationAnalysis.Core.Simulation;
+using VibrationAnalysis.Core.Trending;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 var t = new TestRunner();
@@ -394,6 +395,75 @@ t.Run("Desenvolvimiento de fase", () =>
 {
     var u = OrderTracking.Unwrap(new[] { 350.0, 5, 20, 355, 340 });
     T.Near(u[1], 365, 1e-9, "salto 350→5"); T.Near(u[3], 355, 1e-9, "vuelta"); T.Near(u[4], 340, 1e-9, "baja");
+});
+
+// ───────────── Tendencias y alarmas ─────────────
+t.Run("Indicadores de una medición", () =>
+{
+    var r = new RotorSimulator(new SimulatorSettings { Sensors = 1 }).Acquire();
+    var m = FeatureExtractor.Extract(r, 0, new Machine { Rpm = 1500, Bearing = new BearingGeometry(9, 7.94, 39, 0) }, "p1");
+    T.Near(m.Get(FeatureKeys.Amp1X), r.Reading1X(0).Magnitude, r.Reading1X(0).Magnitude * 0.02, "1X");
+    T.Near(m.Rpm, 1500, 1, "rpm");
+    foreach (var k in new[] { FeatureKeys.VelocityRms, FeatureKeys.AccelerationRms, FeatureKeys.Kurtosis, FeatureKeys.EnvelopeRms, FeatureKeys.Bpfo, FeatureKeys.HighFrequency })
+        T.True(!double.IsNaN(m.Get(k)), k);
+    var sp = SpectrumAnalyzer.Compute(SignalTools.Convert(r.Channels[0].Data, r.SampleRate, VibrationUnit.VelocityMmS, VibrationUnit.VelocityMmS, 10), r.SampleRate);
+    T.Near(m.Get(FeatureKeys.VelocityRms), sp.BandRms(10, 1000, sp.NoiseBandwidthBins), 0.01, "velocidad RMS");
+});
+t.Run("Alarmas: base ×2/×4, ISO 20816 y estadísticas", () =>
+{
+    var pt = new MeasurementPoint();
+    MeasurementRecord R(double v1x, double vel, double acc, int day) => new() { PointId = pt.Id, Timestamp = new DateTime(2026, 1, 1).AddDays(day), Features = { [FeatureKeys.Amp1X] = v1x, [FeatureKeys.VelocityRms] = vel, [FeatureKeys.AccelerationRms] = acc } };
+    var hist = new List<MeasurementRecord> { R(1.0, 1.0, 0.10, 0), R(1.1, 1.1, 0.11, 30), R(0.9, 1.0, 0.09, 60) };
+    AlarmLevel L(MeasurementRecord r, string k) => TrendAnalysis.Evaluate(r, pt, MachineClass.Iso10816_3_Group2Rigid, hist).First(a => a.Feature == k).Level;
+    T.Eq(L(R(1.5, 1, 0.1, 90), FeatureKeys.Amp1X), AlarmLevel.Normal, "1X normal");
+    T.Eq(L(R(2.5, 1, 0.1, 90), FeatureKeys.Amp1X), AlarmLevel.Alert, "1X alerta");
+    T.Eq(L(R(4.5, 1, 0.1, 90), FeatureKeys.Amp1X), AlarmLevel.Danger, "1X peligro");
+    T.Eq(L(R(1, 3.0, 0.1, 90), FeatureKeys.VelocityRms), AlarmLevel.Alert, "ISO zona C");
+    T.Eq(L(R(1, 4.6, 0.1, 90), FeatureKeys.VelocityRms), AlarmLevel.Danger, "ISO zona D");
+    T.Eq(L(R(1, 1, 0.14, 90), FeatureKeys.AccelerationRms), AlarmLevel.Alert, "estadística (media + 3σ)");
+    var worst = TrendAnalysis.WorstLevel(TrendAnalysis.Evaluate(R(4.5, 3, 0.1, 90), pt, MachineClass.Iso10816_3_Group2Rigid, hist));
+    T.Eq(worst, AlarmLevel.Danger, "peor nivel");
+});
+t.Run("Tendencia: ajuste exponencial y pronóstico de cruce", () =>
+{
+    var t0 = new DateTime(2026, 1, 1);
+    var exp = Enumerable.Range(0, 8).Select(i => (t0.AddDays(30 * i), 0.5 * Math.Exp(0.01 * 30 * i))).ToList();
+    var fit = TrendAnalysis.Fit(exp)!;
+    T.True(fit.Exponential, "exponencial");
+    T.Near((fit.Crossing(4.0)!.Value - t0).TotalDays, Math.Log(8) / 0.01, 2, "días hasta 4,0");
+    var lin = Enumerable.Range(0, 6).Select(i => (t0.AddDays(10 * i), 1.0 + 0.05 * i)).ToList();
+    var fl = TrendAnalysis.Fit(lin)!;
+    T.True(!fl.Exponential, "lineal"); T.Near(fl.SlopePerDay, 0.005, 1e-9, "pendiente");
+    T.True(TrendAnalysis.Fit(lin.Take(2).ToList()) == null, "pocos puntos");
+});
+t.Run("Base de mediciones: demo, persistencia, CSV y borrado", () =>
+{
+    var dir = Path.Combine(Path.GetTempPath(), "va_tend_" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        var db = new TrendDatabase(dir);
+        var plant = db.CreateDemo(new DateTime(2026, 11, 1));
+        var db2 = new TrendDatabase(dir);
+        T.Eq(db2.Catalog.Plants.Count, 1, "plantas"); T.Eq(db2.AllPoints().Count(), 3, "puntos"); T.Eq(db2.Catalog.Routes[0].PointIds.Count, 3, "ruta");
+        var fan = db2.Catalog.Plants[0].Machines[0];
+        T.True(fan.Machine.Bearing != null && fan.Machine.Bearing.Balls == 9, "rodamiento persistido");
+        var fanH = fan.Points[0];
+        var hist = db2.Measurements(fanH.Id);
+        T.Eq(hist.Count, 12, "mediciones");
+        T.True(hist[^1].Get(FeatureKeys.Bpfo) > 3 * hist[0].Get(FeatureKeys.Bpfo), "el rodamiento empeora");
+        var lvl = TrendAnalysis.WorstLevel(TrendAnalysis.Evaluate(hist[^1], fanH, fan.Machine.MachineClass, hist));
+        T.True(lvl >= AlarmLevel.Alert, "la última medición del ventilador está en alarma");
+        T.True(TrendAnalysis.WorstLevel(TrendAnalysis.Evaluate(hist[1], fanH, fan.Machine.MachineClass, hist)) == AlarmLevel.Normal, "al principio estaba normal");
+        T.Eq(db2.ExportCsv(fanH.Id).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length, 13, "CSV");
+        db2.DeleteMeasurement(fanH.Id, hist[0].Id);
+        T.Eq(new TrendDatabase(dir).Measurements(fanH.Id).Count, 11, "borrado persistido");
+        var rec = FeatureExtractor.Extract(new RotorSimulator(new SimulatorSettings { Sensors = 1 }).Acquire(), 0, fan.Machine, fanH.Id);
+        db2.AddMeasurement(rec, new RotorSimulator(new SimulatorSettings { Sensors = 1 }).Acquire());
+        var back = new TrendDatabase(dir);
+        var w = back.LoadWaveform(back.Measurements(fanH.Id).First(m => m.Id == rec.Id));
+        T.True(w != null && w.Length == 8192, "señal guardada");
+    }
+    finally { try { Directory.Delete(dir, true); } catch { } }
 });
 
 int failed = t.Summary();

@@ -43,14 +43,14 @@ public static class Severity
 
     public static string Name(MachineClass c) => c switch
     {
-        MachineClass.Iso10816_1_ClassI => "ISO 10816-1 · Clase I (hasta 15 kW)",
-        MachineClass.Iso10816_1_ClassII => "ISO 10816-1 · Clase II (15–75 kW)",
-        MachineClass.Iso10816_1_ClassIII => "ISO 10816-1 · Clase III (grandes, base rígida)",
-        MachineClass.Iso10816_1_ClassIV => "ISO 10816-1 · Clase IV (grandes, base flexible)",
-        MachineClass.Iso10816_3_Group2Rigid => "ISO 10816-3 · Grupo 2 (15–300 kW), base rígida",
-        MachineClass.Iso10816_3_Group2Flexible => "ISO 10816-3 · Grupo 2 (15–300 kW), base flexible",
-        MachineClass.Iso10816_3_Group1Rigid => "ISO 10816-3 · Grupo 1 (300 kW–50 MW), base rígida",
-        MachineClass.Iso10816_3_Group1Flexible => "ISO 10816-3 · Grupo 1 (300 kW–50 MW), base flexible",
+        MachineClass.Iso10816_1_ClassI => "ISO 20816-1 (ex 10816-1) · Clase I (hasta 15 kW)",
+        MachineClass.Iso10816_1_ClassII => "ISO 20816-1 (ex 10816-1) · Clase II (15–75 kW)",
+        MachineClass.Iso10816_1_ClassIII => "ISO 20816-1 (ex 10816-1) · Clase III (grandes, base rígida)",
+        MachineClass.Iso10816_1_ClassIV => "ISO 20816-1 (ex 10816-1) · Clase IV (grandes, base flexible)",
+        MachineClass.Iso10816_3_Group2Rigid => "ISO 20816-3 (ex 10816-3) · Grupo 2 (15–300 kW), base rígida",
+        MachineClass.Iso10816_3_Group2Flexible => "ISO 20816-3 (ex 10816-3) · Grupo 2 (15–300 kW), base flexible",
+        MachineClass.Iso10816_3_Group1Rigid => "ISO 20816-3 (ex 10816-3) · Grupo 1 (300 kW–50 MW), base rígida",
+        MachineClass.Iso10816_3_Group1Flexible => "ISO 20816-3 (ex 10816-3) · Grupo 1 (300 kW–50 MW), base flexible",
         _ => c.ToString(),
     };
 
