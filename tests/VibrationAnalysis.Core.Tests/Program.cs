@@ -10,6 +10,7 @@ using VibrationAnalysis.Core.Balancing;
 using VibrationAnalysis.Core.Dsp;
 using VibrationAnalysis.Core.IO;
 using VibrationAnalysis.Core.Model;
+using VibrationAnalysis.Core.Network;
 using VibrationAnalysis.Core.Simulation;
 using VibrationAnalysis.Core.Trending;
 
@@ -575,6 +576,112 @@ t.Run("Equipo simulado: adquisición continua, instantánea y calidad", () =>
     T.Eq(r.Length, 51200, "2 s"); T.Near(r.MeasuredRpm(), 1500, 1, "rpm"); T.Near(r.Reading1X(0).Magnitude, 0.5, 0.01, "1X");
     T.Eq(issues.Count, 0, "sin problemas");
     dev.Stop(); T.True(!dev.IsRunning, "detenido");
+});
+
+// ───────────── Red y planta (MQTT, Modbus) ─────────────
+t.Run("MQTT: longitud variable y comodines de tema", () =>
+{
+    foreach (var (len, bytes) in new[] { (0, 1), (127, 1), (128, 2), (16383, 2), (16384, 3), (2097151, 3), (2097152, 4) })
+    { var b = new List<byte>(); MqttCodec.WriteRemainingLength(b, len); T.Eq(b.Count, bytes, $"largo {len}"); }
+    T.True(MqttCodec.TopicMatches("vib/+/indicadores", "vib/vt01/indicadores"), "+");
+    T.True(MqttCodec.TopicMatches("vib/#", "vib/a/b/c"), "#");
+    T.True(!MqttCodec.TopicMatches("vib/+/indicadores", "vib/vt01/x/indicadores"), "+ es un nivel");
+    T.True(!MqttCodec.TopicMatches("vib/a", "vib/a/b"), "más niveles");
+    var p = MqttCodec.BuildPublish("a/b", Encoding.UTF8.GetBytes("hola"), 1, false, 7);
+    var (topic, payload, qos, id) = MqttCodec.ParsePublish(p[0], p[2..]);
+    T.Eq(topic, "a/b", "tema"); T.Eq(Encoding.UTF8.GetString(payload), "hola", "contenido"); T.Eq(qos, 1, "QoS"); T.Eq(id, (ushort)7, "id");
+});
+t.Run("MQTT: conexión, suscripción y publicación con un broker de prueba", () =>
+{
+    var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+    int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+    var broker = Task.Run(async () =>
+    {
+        using var c = await listener.AcceptTcpClientAsync();
+        var s = c.GetStream(); var ct = CancellationToken.None;
+        var (h, _) = await MqttCodec.ReadPacketAsync(s, ct); if (h != MqttCodec.Connect) throw new Exception("CONNECT");
+        await s.WriteAsync(new byte[] { MqttCodec.ConnAck, 2, 0, 0 });
+        for (int k = 0; k < 2; k++)
+        {
+            var (hh, body) = await MqttCodec.ReadPacketAsync(s, ct);
+            if ((hh & 0xF0) == 0x80) await s.WriteAsync(new byte[] { MqttCodec.SubAck, 3, body[0], body[1], 0 });
+            else if ((hh & 0xF0) == MqttCodec.Publish)
+            {
+                var (tp, pl, q, pid) = MqttCodec.ParsePublish(hh, body);
+                if (q == 1) await s.WriteAsync(MqttCodec.BuildPubAck(pid));
+                await s.WriteAsync(MqttCodec.BuildPublish(tp, pl));
+            }
+        }
+        await Task.Delay(300);
+    });
+    using var cli = new MqttClient();
+    var got = new TaskCompletionSource<string>();
+    cli.MessageReceived += (tp, pl) => got.TrySetResult(tp + "=" + Encoding.UTF8.GetString(pl));
+    cli.ConnectAsync("127.0.0.1", port, "prueba").Wait(5000);
+    cli.SubscribeAsync("vib/#").Wait(5000);
+    cli.PublishAsync("vib/vt01/indicadores", "{\"id\":\"vt01\"}", 1).Wait(5000);
+    T.True(got.Task.Wait(5000), "mensaje recibido");
+    T.Eq(got.Task.Result, "vib/vt01/indicadores={\"id\":\"vt01\"}", "eco del broker");
+    broker.Wait(5000); listener.Stop();
+});
+t.Run("Modbus: CRC, float32 y servidor TCP con cliente", () =>
+{
+    T.Eq(ModbusCodec.Crc(new byte[] { 0x01, 0x03, 0x00, 0x00, 0x00, 0x0A }), (ushort)0xCDC5, "CRC de referencia (C5 CD en la trama)");
+    var (hi, lo) = ModbusCodec.FromFloat(2.5f); T.Near(ModbusCodec.ToFloat(hi, lo), 2.5, 0, "float ABCD");
+    var (a, b) = ModbusCodec.FromFloat(-1.25f, true); T.Near(ModbusCodec.ToFloat(a, b, true), -1.25, 0, "float CDAB");
+    using var srv = new ModbusTcpServer();
+    srv.Start(0, System.Net.IPAddress.Loopback);
+    srv.SetFloat(0, 3.75f); srv.SetWord(21, 2);
+    int written = -1; srv.HoldingWritten += (adr, v) => written = adr * 1000 + v;
+    using var cli = ModbusClient.ConnectTcpAsync("127.0.0.1", srv.Port).Result;
+    var r = cli.ReadInputAsync(1, 0, 2).Result;
+    T.Near(ModbusCodec.ToFloat(r[0], r[1]), 3.75, 0, "registro de entrada");
+    T.Eq(cli.ReadInputAsync(1, 21, 1).Result[0], (ushort)2, "nivel de alarma");
+    cli.WriteSingleAsync(1, 0, 1).Wait();
+    T.Eq(written, 1, "orden del PLC"); T.Eq(cli.ReadHoldingAsync(1, 0, 1).Result[0], (ushort)1, "registro de retención");
+    try { cli.ReadInputAsync(1, 999, 5).Wait(); throw new Exception("debía fallar"); }
+    catch (AggregateException ex) { T.True(ex.InnerException!.Message.Contains("dirección"), "excepción 02"); }
+});
+t.Run("Modbus RTU: cliente con esclavo simulado", () =>
+{
+    var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+    int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+    var holding = new ushort[10]; holding[3] = 1490; var input = new ushort[1]; var sync = new object();
+    var slave = Task.Run(async () =>
+    {
+        using var c = await listener.AcceptTcpClientAsync(); var s = c.GetStream();
+        var req = new byte[8]; int off = 0;
+        while (off < 8) off += await s.ReadAsync(req.AsMemory(off));
+        if (ModbusCodec.Crc(req.AsSpan(0, 6)) != (ushort)(req[6] | req[7] << 8)) throw new Exception("CRC del pedido");
+        var pdu = ModbusCodec.Handle(req.AsSpan(1, 5), holding, input, sync);
+        var resp = new byte[pdu.Length + 3]; resp[0] = req[0]; pdu.CopyTo(resp, 1);
+        ushort crc = ModbusCodec.Crc(resp.AsSpan(0, pdu.Length + 1)); resp[^2] = (byte)crc; resp[^1] = (byte)(crc >> 8);
+        await s.WriteAsync(resp);
+        await Task.Delay(200);
+    });
+    using var tcp = new System.Net.Sockets.TcpClient(); tcp.Connect("127.0.0.1", port);
+    using var cli = ModbusClient.OverRtu(tcp.GetStream());
+    T.Eq(cli.ReadHoldingAsync(5, 3, 1).Result[0], (ushort)1490, "velocidad del variador por RTU");
+    slave.Wait(3000); listener.Stop();
+});
+t.Run("Puente con la planta: registros, JSON y mensajes de sensores", () =>
+{
+    using var srv = new ModbusTcpServer();
+    var m = new MeasurementRecord { PointId = "p1", Rpm = 1490, Timestamp = new DateTime(2026, 11, 21, 10, 0, 0), Features = { [FeatureKeys.VelocityRms] = 4.2, [FeatureKeys.Amp1X] = 3.9 } };
+    PlantGateway.PublishCurrent(srv, m, 2, AlarmLevel.Alert, 7);
+    PlantGateway.PublishPoint(srv, 1, m, AlarmLevel.Danger, 12);
+    T.Near(ModbusCodec.ToFloat(srv.Input[0], srv.Input[1]), 4.2, 1e-6, "vel RMS en 30001");
+    T.Near(ModbusCodec.ToFloat(srv.Input[18], srv.Input[19]), 1490, 1e-3, "rpm en 30019");
+    T.Eq(srv.Input[21], (ushort)1, "alerta en 30022");
+    T.Eq(srv.Input[PlantGateway.PointBase + PlantGateway.PointStride + 8], (ushort)2, "peligro del punto 2");
+    T.True(PlantGateway.Describe(new[] { "VT-01 LA" }).Any(r => r.Address == 30101 && r.Name.Contains("VT-01")), "mapa descripto");
+    var json = PlantGateway.MeasurementJson(m, "Planta", "VT-01", "LA H", AlarmLevel.Alert);
+    using var doc = JsonDocument.Parse(json);
+    T.Eq(doc.RootElement.GetProperty("nivel").GetString(), "alerta", "nivel"); T.Near(doc.RootElement.GetProperty("indicadores").GetProperty("vel_rms").GetDouble(), 4.2, 1e-9, "indicador");
+    var sm = PlantGateway.ParseSensorMessage("{\"id\":\"vt01\",\"vel_rms\":2.3,\"temperatura\":56,\"rpm\":1490,\"fs\":3200}")!.Value;
+    T.Eq(sm.Id, "vt01", "id"); T.Near(sm.Rpm, 1490, 0, "rpm"); T.True(sm.Features.ContainsKey("temperatura") && !sm.Features.ContainsKey("fs"), "indicadores");
+    T.True(PlantGateway.ParseSensorMessage("no json") == null, "basura");
+    T.Eq(PlantGateway.TopicPart("Lado acople / H"), "Lado_acople___H", "tema seguro");
 });
 
 int failed = t.Summary();

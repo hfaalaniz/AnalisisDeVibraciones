@@ -18,10 +18,40 @@
   Placa: ESP32 (ADXL345/ADXL355) o ESP32-S3 con USB nativo ("USB CDC On Boot" activado) para IIS3DWB a 26,7 kHz.
   Núcleo Arduino-ESP32 3.x.
 
+  Red (opcional, USE_WIFI=1): el mismo protocolo por TCP (puerto 3333) en vez de USB, y con USE_MQTT=1 publica cada
+  MQTT_PERIOD_S segundos los indicadores (aceleración RMS y pico, factor de cresta, velocidad RMS 10–1000 Hz, rpm) en
+  «<MQTT_PREFIX>/<DEVICE_ID>/indicadores» como JSON, aunque nadie esté conectado (monitoreo en línea). MQTT usa PubSubClient.
+
   Ejemplo de referencia: compila en el CI, pero no fue probado en hardware. Verificar cableado, alimentación (3,3 V)
   y fijación del acelerómetro (espárrago o base magnética) antes de usar en planta.
 */
 #include <SPI.h>
+
+#ifndef USE_WIFI
+#define USE_WIFI 0
+#endif
+#ifndef USE_MQTT
+#define USE_MQTT 0
+#endif
+#if USE_MQTT && !USE_WIFI
+#error "USE_MQTT necesita USE_WIFI=1"
+#endif
+#if USE_WIFI
+#include <WiFi.h>
+#endif
+#if USE_MQTT
+#include <PubSubClient.h>
+#endif
+
+// ───────────── Red ─────────────
+#define WIFI_SSID "mi-red"
+#define WIFI_PASS "mi-clave"
+#define DEVICE_ID "vt01"
+static const uint16_t TCP_PORT = 3333;
+#define MQTT_HOST "192.168.1.10"
+static const uint16_t MQTT_PORT = 1883;
+#define MQTT_PREFIX "vibraciones"
+static const uint32_t MQTT_PERIOD_S = 10;
 
 // ───────────── Configuración ─────────────
 #define SENSOR_ADXL345 1
@@ -46,6 +76,19 @@ static const int RANGE_G = 4;                    // ±2, ±4, ±8 (ADXL355/IIS3D
 static const int FRAME_SAMPLES = 64;             // muestras por trama binaria
 
 // ───────────── Estado ─────────────
+static Print *out = &Serial;                      // destino del flujo: USB o cliente TCP
+#if USE_WIFI
+static WiFiServer tcpServer(TCP_PORT);
+static WiFiClient tcpClient;
+#endif
+#if USE_MQTT
+static WiFiClient mqttNet;
+static PubSubClient mqtt(mqttNet);
+static uint32_t lastPublish = 0;
+// Acumuladores del canal 1 para los indicadores
+static double sumA2 = 0, sumV2 = 0, peakA = 0, hpPrevX = 0, hpPrevY = 0, vel = 0;
+static uint32_t statN = 0, statPulses = 0;
+#endif
 static int sensorCount = 0;
 static int csList[4];
 static int channels = 0;
@@ -196,7 +239,7 @@ static void flushFrame() {
   for (int i = 0; i < tb; i++) txBuf[o++] = frameTach[i];
   uint16_t crc = crc16(txBuf + 2, o - 2);
   txBuf[o++] = crc & 0xFF; txBuf[o++] = crc >> 8;
-  Serial.write(txBuf, o);
+  out->write(txBuf, o);
   seqNo++;
   frameCount = 0;
   memset(frameTach, 0, sizeof(frameTach));
@@ -209,7 +252,7 @@ static void emitSample(const int32_t *values, bool tach) {
     int o = 0;
     for (int c = 0; c < channels; c++) o += snprintf(line + o, sizeof(line) - o, "%.5f,", values[c] * lsbG);
     snprintf(line + o, sizeof(line) - o, "%d\n", tach ? 1 : 0);
-    Serial.print(line);
+    out->print(line);
     return;
   }
   for (int c = 0; c < channels; c++) {
@@ -233,13 +276,13 @@ static void sendHeader() {
       names += String("S") + (s + 1) + axes[a];
     }
   if (binaryMode)
-    Serial.printf("#VA2 fs=%lu ch=%d unit=g tach=1 scale=%.9g names=%s sensor=%s\n", (unsigned long)sampleRate, channels, outScale, names.c_str(), sensorName);
+    out->printf("#VA2 fs=%lu ch=%d unit=g tach=1 scale=%.9g names=%s sensor=%s\n", (unsigned long)sampleRate, channels, outScale, names.c_str(), sensorName);
   else
-    Serial.printf("#VA fs=%lu ch=%d unit=g tach=1\n", (unsigned long)sampleRate, channels);
+    out->printf("#VA fs=%lu ch=%d unit=g tach=1\n", (unsigned long)sampleRate, channels);
 }
 
 static void sendInfo() {
-  Serial.printf("# sensor=%s sensores=%d canales=%d fs=%lu rango=±%dg modo=%s\n", sensorName, sensorCount, channels,
+  out->printf("# sensor=%s sensores=%d canales=%d fs=%lu rango=±%dg modo=%s\n", sensorName, sensorCount, channels,
                 (unsigned long)sampleRate, RANGE_G, binaryMode ? "binario" : "texto");
 }
 
@@ -268,11 +311,84 @@ void setup() {
   timerAlarm(timer, 1000000 / sampleRate, true, 0);
 #endif
   if (sensorCount == 0) Serial.println("# ERROR: no se encontró ningún acelerómetro. Revisar cableado y SENSOR_TYPE.");
+#if USE_WIFI
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname("vib-" DEVICE_ID);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  tcpServer.begin();
+  tcpServer.setNoDelay(true);
+#endif
+#if USE_MQTT
+  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+#endif
 }
 
+#if USE_WIFI
+/* Acepta un cliente TCP (uno a la vez) y redirige el flujo a él; al desconectarse vuelve al USB. */
+static void serviceNetwork() {
+  static bool announced = false;
+  if (WiFi.status() == WL_CONNECTED && !announced) {
+    Serial.printf("# WiFi conectado: %s, puerto %u\n", WiFi.localIP().toString().c_str(), TCP_PORT);
+    announced = true;
+  }
+  if (WiFi.status() != WL_CONNECTED) announced = false;
+  WiFiClient c = tcpServer.accept();
+  if (c) {
+    if (tcpClient && tcpClient.connected()) tcpClient.stop();
+    tcpClient = c;
+    tcpClient.setNoDelay(true);
+    out = &tcpClient;
+    running = false;
+  }
+  if (out == &tcpClient && !tcpClient.connected()) { out = &Serial; running = false; }
+}
+#endif
+
+#if USE_MQTT
+/* Acumula los indicadores del canal 1 (en g): RMS, pico y velocidad 10–1000 Hz por integración con filtro pasaaltos. */
+static void accumulate(float g, bool tach) {
+  float fs = (float)sampleRate;
+  float a = 1.0f / (1.0f + 2.0f * PI * 10.0f / fs);          // pasaaltos de 1.er orden a 10 Hz
+  double y = a * (hpPrevY + g - hpPrevX);
+  hpPrevX = g; hpPrevY = y;
+  vel = vel * (1.0 - 2.0 * PI * 2.0 / fs) + y * 9806.65 / fs;  // integración con fuga (mm/s)
+  sumA2 += (double)g * g; sumV2 += vel * vel;
+  if (fabs(g) > peakA) peakA = fabs(g);
+  statN++;
+  if (tach) statPulses++;
+}
+
+static void serviceMqtt() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (!mqtt.connected()) {
+    static uint32_t lastTry = 0;
+    if (millis() - lastTry < 5000) return;
+    lastTry = millis();
+    if (!mqtt.connect("vib-" DEVICE_ID)) return;
+  }
+  mqtt.loop();
+  uint32_t now = millis();
+  if (now - lastPublish < MQTT_PERIOD_S * 1000 || statN < 16) return;
+  double secs = (now - lastPublish) / 1000.0;
+  lastPublish = now;
+  double accRms = sqrt(sumA2 / statN), velRms = sqrt(sumV2 / statN);
+  char json[256];
+  snprintf(json, sizeof(json),
+           "{\"id\":\"%s\",\"sensor\":\"%s\",\"fs\":%lu,\"acc_rms\":%.5f,\"acc_pico\":%.5f,\"factor_cresta\":%.3f,\"vel_rms\":%.4f,\"rpm\":%.1f,\"n\":%lu}",
+           DEVICE_ID, sensorName, (unsigned long)sampleRate, accRms, peakA, accRms > 0 ? peakA / accRms : 0, velRms,
+           statPulses * 60.0 / secs, (unsigned long)statN);
+  mqtt.publish(MQTT_PREFIX "/" DEVICE_ID "/indicadores", json);
+  sumA2 = sumV2 = peakA = 0; statN = statPulses = 0;
+}
+#endif
+
 static void handleCommands() {
-  if (!Serial.available()) return;
-  String cmd = Serial.readStringUntil('\n');
+  Stream *in = &Serial;
+#if USE_WIFI
+  if (out == &tcpClient) in = &tcpClient;
+#endif
+  if (!in->available()) return;
+  String cmd = in->readStringUntil('\n');
   cmd.trim();
   cmd.toUpperCase();
   if (cmd == "START" && sensorCount > 0) { running = true; seqNo = 0; frameCount = 0; tachTail = tachHead; sendHeader(); }
@@ -283,8 +399,14 @@ static void handleCommands() {
 }
 
 void loop() {
+#if USE_WIFI
+  serviceNetwork();
+#endif
+#if USE_MQTT
+  serviceMqtt();
+#endif
   handleCommands();
-  if (!running) return;
+  if (!running && !USE_MQTT) return;          // con MQTT se muestrea siempre para calcular los indicadores
   int32_t xyz[3], values[12];
 
 #if SENSOR_TYPE == SENSOR_IIS3DWB
@@ -307,7 +429,10 @@ void loop() {
       if (idx > i) break;
       t = true; tachTail++;
     }
-    emitSample(values, t);
+#if USE_MQTT
+    accumulate(values[0] * lsbG, t);
+#endif
+    if (running) emitSample(values, t);
   }
 #else
   if (!tick) return;
@@ -319,6 +444,9 @@ void loop() {
   }
   bool t = tachFlag;
   if (t) { tachFlag = false; tachTail = tachHead; }
-  emitSample(values, t);
+#if USE_MQTT
+  accumulate(values[0] * lsbG, t);
+#endif
+  if (running) emitSample(values, t);
 #endif
 }

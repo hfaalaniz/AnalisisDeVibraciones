@@ -24,12 +24,12 @@ using VibrationAnalysis.UI.Devices;
 namespace VibrationAnalysis.UI
 {
     /// <summary>
-    /// Ventana principal. Flujo en pestañas numeradas: 1 Máquina → 2 Adquisición → 3 Diagnóstico → 4 Análisis avanzado → 5 Órdenes y transitorios → 6 Tendencias → 7 Balanceo → 8 Informe.
+    /// Ventana principal. Flujo en pestañas numeradas: 1 Máquina → 2 Adquisición → 3 Diagnóstico → 4 Análisis avanzado → 5 Órdenes y transitorios → 6 Tendencias → 7 Red y planta → 8 Balanceo → 9 Informe.
     /// Toda la matemática está en VibrationAnalysis.Core (con pruebas); acá solo hay interfaz.
     /// </summary>
-    public sealed class MainForm : Form
+    public sealed partial class MainForm : Form
     {
-        private enum Source { Simulator, File, Serial, Manual, SoundCard, Daq }
+        private enum Source { Simulator, File, Serial, Manual, SoundCard, Daq, Network }
 
         private const string WebUrl = "https://analisisdevibraciones.pages.dev/";
         private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-AR");
@@ -130,6 +130,7 @@ namespace VibrationAnalysis.UI
             tabs.TabPages.Add(BuildAnalysisTab());
             tabs.TabPages.Add(BuildTransientTab());
             tabs.TabPages.Add(BuildTrendTab());
+            tabs.TabPages.Add(BuildNetworkTab());
             tabs.TabPages.Add(BuildBalancingTab());
             tabs.TabPages.Add(BuildReportTab());
 
@@ -140,7 +141,7 @@ namespace VibrationAnalysis.UI
 
             tabs.SelectedIndexChanged += (s, e) => { if (tabs.SelectedTab == advPage) RunAdvancedAnalysis(); else if (tabs.SelectedTab == trPage) RunTransientAnalysis(); else if (tabs.SelectedTab == trendPage) EnsureTrendDb(); };
             liveTimer.Tick += (s, e) => { if (chkLive.Checked) Acquire(silent: true); };
-            FormClosing += (s, e) => { liveTimer.Stop(); ClosePort(); StopDevice(); };
+            FormClosing += (s, e) => { liveTimer.Stop(); ClosePort(); StopDevice(); CloseNetSensor(); ShutdownNetwork(); };
 
             ApplyTheme("Claro");
             NewSession();
@@ -234,7 +235,7 @@ namespace VibrationAnalysis.UI
         {
             var page = new TabPage("2. Adquisición");
             var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), WrapContents = true };
-            cmbSource = Combo(new[] { "Simulador", "Archivo CSV / WAV", "Puerto serie (sensor)", "Ingreso manual (solo balanceo)", "Placa de sonido (IEPE)", "NI-DAQmx (IEPE)" }, 170);
+            cmbSource = Combo(new[] { "Simulador", "Archivo CSV / WAV", "Puerto serie (sensor)", "Ingreso manual (solo balanceo)", "Placa de sonido (IEPE)", "NI-DAQmx (IEPE)", "Sensor por red (WiFi/TCP)" }, 170);
             cmbSource.SelectedIndexChanged += (s, e) => OnSourceChanged();
             btnAcquire = Btn("Adquirir", (s, e) => Acquire());
             chkLive = new CheckBox { Text = "En vivo (1 s)", AutoSize = true, Margin = new Padding(8, 8, 8, 0) };
@@ -246,7 +247,7 @@ namespace VibrationAnalysis.UI
             lblLink = new Label { AutoSize = true, Margin = new Padding(8, 8, 0, 0), ForeColor = Color.FromArgb(14, 124, 134) };
             linkTimer.Tick += (s, e) =>
             {
-                if (port?.IsOpen == true) lock (serialParser) lblLink.Text = serialParser.Status + (serialParser.LastMessage.Length > 0 ? " · " + serialParser.LastMessage : "");
+                if (port?.IsOpen == true || netSensor?.Connected == true) lock (serialParser) lblLink.Text = serialParser.Status + (serialParser.LastMessage.Length > 0 ? " · " + serialParser.LastMessage : "");
                 else if (device != null)
                 {
                     lblLink.Text = device.Status + (lastIssues.Count > 0 ? " · " + string.Join(" · ", lastIssues.Select(q => $"{q.Channel}: {q.Message}")) : "");
@@ -254,7 +255,8 @@ namespace VibrationAnalysis.UI
                     if (!device.IsRunning) btnConnect.Text = "Conectar";
                 }
             };
-            btnConnect = Btn("Conectar", (s, e) => { if (CurrentSource is Source.SoundCard or Source.Daq) ToggleDevice(); else ToggleSerial(); });
+            btnConnect = Btn("Conectar", (s, e) => { if (CurrentSource is Source.SoundCard or Source.Daq) ToggleDevice(); else if (CurrentSource == Source.Network) ToggleNetSensor(); else ToggleSerial(); });
+            txtNetSensor = new TextBox { Width = 150, Text = "192.168.4.1:3333", Margin = new Padding(3, 5, 3, 3) };
             btnDaqSetup = Btn("Configurar equipo…", (s, e) => SetupDevice());
             cmbChannel = Combo(new string[0], 110);
             cmbChannel.SelectedIndexChanged += (s, e) => RefreshAnalysis();
@@ -263,7 +265,7 @@ namespace VibrationAnalysis.UI
             cmbWindow = Combo(new[] { "Hanning", "Flat-top", "Hamming", "Rectangular" }, 100);
             cmbWindow.SelectedIndexChanged += (s, e) => RefreshAnalysis();
             btnExportCsv = Btn("Exportar CSV", (s, e) => ExportCsv());
-            top.Controls.AddRange(new Control[] { Lbl("Fuente:"), cmbSource, btnAcquire, chkLive, Lbl("Puerto:"), cmbPort, cmbBaud, Lbl("Modo:"), cmbSerialMode, Lbl("Capturar (s):"), nudCapture, btnConnect, btnDaqSetup, Btn("Info", (s, e) => { try { port?.WriteLine("INFO"); } catch { } }), Lbl("Canal:"), cmbChannel, Lbl("Ver:"), cmbUnitView, Lbl("Ventana:"), cmbWindow, btnExportCsv, lblLink });
+            top.Controls.AddRange(new Control[] { Lbl("Fuente:"), cmbSource, btnAcquire, chkLive, Lbl("Puerto:"), cmbPort, cmbBaud, txtNetSensor, Lbl("Modo:"), cmbSerialMode, Lbl("Capturar (s):"), nudCapture, btnConnect, btnDaqSetup, Btn("Info", (s, e) => { try { port?.WriteLine("INFO"); } catch { } }), Lbl("Canal:"), cmbChannel, Lbl("Ver:"), cmbUnitView, Lbl("Ventana:"), cmbWindow, btnExportCsv, lblLink });
 
             lblStats = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 4, 8, 4), Font = new Font("Consolas", 9.5f) };
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, FixedPanel = FixedPanel.Panel2 };
@@ -294,12 +296,15 @@ namespace VibrationAnalysis.UI
         {
             var src = CurrentSource;
             bool dev = src is Source.SoundCard or Source.Daq;
-            cmbPort.Enabled = cmbBaud.Enabled = cmbSerialMode.Enabled = src == Source.Serial;
-            btnConnect.Enabled = nudCapture.Enabled = src == Source.Serial || dev;
+            cmbPort.Enabled = cmbBaud.Enabled = src == Source.Serial;
+            cmbSerialMode.Enabled = src is Source.Serial or Source.Network;
+            txtNetSensor.Enabled = src == Source.Network;
+            btnConnect.Enabled = nudCapture.Enabled = src is Source.Serial or Source.Network || dev;
+            if (netSensor != null && src != Source.Network) CloseNetSensor();
             btnDaqSetup.Enabled = dev;
             if (device != null && !dev) StopDevice();
-            chkLive.Enabled = src is Source.Simulator or Source.Serial or Source.SoundCard or Source.Daq;
-            btnAcquire.Text = src switch { Source.File => "Abrir archivo…", Source.Serial or Source.SoundCard or Source.Daq => "Capturar", Source.Manual => "—", _ => "Adquirir" };
+            chkLive.Enabled = src is Source.Simulator or Source.Serial or Source.SoundCard or Source.Daq or Source.Network;
+            btnAcquire.Text = src switch { Source.File => "Abrir archivo…", Source.Serial or Source.SoundCard or Source.Daq or Source.Network => "Capturar", Source.Manual => "—", _ => "Adquirir" };
             btnAcquire.Enabled = src != Source.Manual;
             if (simGrid != null) simGrid.Parent.Visible = src == Source.Simulator;
             if (chkAutoPlace != null) { chkAutoPlace.Enabled = src == Source.Simulator; chkAutoPlace.Checked = src == Source.Simulator; }
@@ -323,6 +328,11 @@ namespace VibrationAnalysis.UI
                         break;
                     case Source.Serial:
                         if (port == null || !port.IsOpen) { if (!silent) Warn("Conectá primero el puerto serie."); return false; }
+                        lock (serialParser) r = serialParser.ToRecording(machine.Rpm, (double)nudCapture.Value);
+                        if (r.Length < 256) { if (!silent) Warn("Todavía no llegaron suficientes muestras del sensor."); return false; }
+                        break;
+                    case Source.Network:
+                        if (netSensor?.Connected != true) { if (!silent) Warn("Conectá primero el sensor de red."); return false; }
                         lock (serialParser) r = serialParser.ToRecording(machine.Rpm, (double)nudCapture.Value);
                         if (r.Length < 256) { if (!silent) Warn("Todavía no llegaron suficientes muestras del sensor."); return false; }
                         break;
@@ -399,6 +409,7 @@ namespace VibrationAnalysis.UI
                 lblStats.Text = $"RMS {st.Rms:0.000} {u}   Pico {st.Peak:0.000}   Pico-pico {st.PeakToPeak:0.000}   Factor de cresta {st.CrestFactor:0.00}   Curtosis {st.Kurtosis:0.00}\n" +
                                 $"Velocidad {rpm:0.0} rpm ({rpm / 60:0.00} Hz)   1X: {oneX}   Resolución {sp.Resolution:0.###} Hz   {recording.Duration:0.00} s";
                 UpdateDiagnosis();
+                PublishCurrentToModbus();
                 if (tabs.SelectedTab == advPage) RunAdvancedAnalysis();
                 else if (tabs.SelectedTab == trPage) RunTransientAnalysis();
             }
@@ -1512,6 +1523,7 @@ namespace VibrationAnalysis.UI
                 var hist = trendDb.Measurements(pt.Id);
                 var lvl = TrendAnalysis.WorstLevel(TrendAnalysis.Evaluate(rec, pt, asset.Machine.MachineClass, hist));
                 SetStatus($"Medición guardada en «{asset.Name} · {pt.Name}»: {LevelText(lvl)}.");
+                OnMeasurementSaved(asset, pt, rec, lvl, TrendAnalysis.Evaluate(rec, pt, asset.Machine.MachineClass, hist));
                 bool onRoute = routeIndex >= 0;
                 RefreshTree(pt.Id);
                 if (onRoute) MoveRoute(1);
@@ -1675,7 +1687,7 @@ namespace VibrationAnalysis.UI
         // ───────────────────────────── 7. Balanceo ─────────────────────────────
         private TabPage BuildBalancingTab()
         {
-            var page = new TabPage("7. Balanceo");
+            var page = new TabPage("8. Balanceo");
             var cfg = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 42, Padding = new Padding(6) };
             cmbPlanes = Combo(new[] { "1 plano", "2 planos" }, 90);
             cmbAngles = Combo(new[] { "Ángulos contrarios al giro", "Ángulos a favor del giro" }, 190);
@@ -1988,7 +2000,7 @@ namespace VibrationAnalysis.UI
         // ───────────────────────────── 5. Informe ─────────────────────────────
         private TabPage BuildReportTab()
         {
-            var page = new TabPage("8. Informe");
+            var page = new TabPage("9. Informe");
             var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(12) };
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
